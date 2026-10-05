@@ -6,7 +6,7 @@ import { formatTime } from '../lib/format';
 import { newId } from '../lib/id';
 import { setPrefs } from '../lib/prefs';
 import { toast } from '../lib/toast';
-import { gradeFor, type LineScore } from '../lib/scoring';
+import type { LineScore } from '../lib/scoring';
 import {
   BATTLE_MODES,
   MAX_PLAYERS,
@@ -16,7 +16,6 @@ import {
   clearBoard,
   emptyTally,
   getBoard,
-  isDraw,
   lineOwner,
   rankPlayers,
   recordBattle,
@@ -33,7 +32,8 @@ import { useEngineState } from '../hooks/useEngine';
 import type { FinalScore } from '../hooks/useScoring';
 import type { Song } from '../lib/types';
 import { KaraokePlayer, type BattleProps } from '../components/KaraokePlayer';
-import { fanfare } from '../components/ScoreResult';
+import { BattleResult } from '../components/BattleResult';
+import { BattleTabs } from './OnlinePage';
 import { Icon } from '../components/Icon';
 
 type Phase = 'setup' | 'handoff' | 'playing' | 'result';
@@ -202,10 +202,12 @@ export function BattlePage({ songId }: { songId?: string }) {
           </h1>
           <p className="muted">ชวนเพื่อนมาประชันเสียง 2–4 คน ใช้ไมค์ตัวเดียวส่งต่อกัน ระบบให้คะแนนจากความแม่นโน้ตและจังหวะ</p>
         </div>
-        {phase !== 'setup' && phase !== 'result' && (
+        {phase !== 'setup' && phase !== 'result' ? (
           <button type="button" className="btn btn-ghost" onClick={cancel}>
             <Icon name="x" size={18} /> ยกเลิกการแข่ง
           </button>
+        ) : (
+          <BattleTabs active="local" />
         )}
       </div>
 
@@ -244,12 +246,17 @@ export function BattlePage({ songId }: { songId?: string }) {
       {phase === 'playing' && song && battle && <KaraokePlayer key={`${round}-${turn}`} song={song} autoPlay battle={battle} />}
 
       {phase === 'result' && standings && song && (
-        <BattleResult
-          standings={standings}
-          song={song}
-          onAgain={() => void start()}
-          onSetup={() => setPhase('setup')}
-        />
+        <BattleResult standings={standings} title={song.title}>
+          <button type="button" className="btn btn-primary" onClick={() => void start()}>
+            <Icon name="restart" size={18} /> แข่งอีกรอบ
+          </button>
+          <button type="button" className="btn btn-ghost" onClick={() => setPhase('setup')}>
+            <Icon name="settings" size={18} /> เปลี่ยนเพลง/ผู้เล่น
+          </button>
+          <a className="btn btn-ghost" href={paths.sing(song.id)}>
+            <Icon name="mic" size={18} /> ฝึกร้องเพลงนี้
+          </a>
+        </BattleResult>
       )}
 
       {(phase === 'setup' || phase === 'result') && (
@@ -417,88 +424,5 @@ function MiniBoard({ players, tallies, upTo }: { players: Player[]; tallies: Tal
         </span>
       ))}
     </div>
-  );
-}
-
-function BattleResult({ standings, song, onAgain, onSetup }: { standings: Standing[]; song: Song; onAgain: () => void; onSetup: () => void }) {
-  const draw = isDraw(standings);
-  const winners = standings.filter((s) => s.rank === 1);
-  const [shown, setShown] = useState(0);
-
-  useEffect(() => {
-    const start = performance.now();
-    let id = 0;
-    const tick = (now: number) => {
-      const p = Math.min(1, (now - start) / 1800);
-      setShown(1 - Math.pow(1 - p, 3));
-      if (p < 1) id = requestAnimationFrame(tick);
-      else fanfare(draw ? 60 : 95);
-    };
-    id = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(id);
-  }, [draw]);
-
-  const done = shown >= 1;
-  const confetti = useMemo(
-    () =>
-      Array.from({ length: 36 }, (_, i) => ({
-        left: Math.random() * 100,
-        delay: Math.random() * 1.2,
-        dur: 2.4 + Math.random() * 1.8,
-        color: [...PLAYER_COLORS, '#ffffff'][i % 5],
-        rot: Math.random() * 360,
-      })),
-    [],
-  );
-
-  return (
-    <section className="card battle-result">
-      {done && !draw && (
-        <div className="confetti" aria-hidden="true">
-          {confetti.map((c, i) => (
-            <i key={i} style={{ left: `${c.left}%`, background: c.color, animationDelay: `${c.delay}s`, animationDuration: `${c.dur}s`, transform: `rotate(${c.rot}deg)` }} />
-          ))}
-        </div>
-      )}
-      <p className="muted">ผลการแข่ง · {song.title}</p>
-      <h2 className="battle-winner">
-        {!done ? 'กำลังนับคะแนน…' : draw ? '🤝 เสมอกัน!' : `👑 ${winners.map((w) => w.player.name).join(' & ')} ชนะ!`}
-      </h2>
-      <ol className="standings">
-        {standings.map((s) => {
-          const score = Math.round(s.score * shown);
-          return (
-            <li key={s.player.id} className={s.rank === 1 && done ? 'winner' : ''} style={{ borderColor: s.player.color }}>
-              <span className="standing-rank">{s.rank === 1 ? '🥇' : s.rank === 2 ? '🥈' : s.rank === 3 ? '🥉' : s.rank}</span>
-              <span className="standing-main">
-                <strong style={{ color: s.player.color }}>{s.player.name}</strong>
-                <span className="standing-bar">
-                  <span style={{ width: `${score}%`, background: s.player.color }} />
-                </span>
-                <small className="muted">
-                  {s.lines} ท่อน · เยี่ยมมาก {s.great} ท่อน
-                  {s.best && s.best.score > 0 && ` · ท่อนเด่น "${s.best.text}" (${s.best.score})`}
-                </small>
-              </span>
-              <span className="standing-score">
-                <strong>{score}</strong>
-                <small>{done ? gradeFor(s.score).grade : ''}</small>
-              </span>
-            </li>
-          );
-        })}
-      </ol>
-      <div className="row" style={{ justifyContent: 'center' }}>
-        <button type="button" className="btn btn-primary" onClick={onAgain}>
-          <Icon name="restart" size={18} /> แข่งอีกรอบ
-        </button>
-        <button type="button" className="btn btn-ghost" onClick={onSetup}>
-          <Icon name="settings" size={18} /> เปลี่ยนเพลง/ผู้เล่น
-        </button>
-        <a className="btn btn-ghost" href={paths.sing(song.id)}>
-          <Icon name="mic" size={18} /> ฝึกร้องเพลงนี้
-        </a>
-      </div>
-    </section>
   );
 }

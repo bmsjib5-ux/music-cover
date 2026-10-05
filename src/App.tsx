@@ -11,6 +11,7 @@ import { SyncPage } from './pages/SyncPage';
 import { SingPage } from './pages/SingPage';
 import { RoomPage } from './pages/RoomPage';
 import { BattlePage } from './pages/BattlePage';
+import { OnlinePage } from './pages/OnlinePage';
 import { Toaster } from './components/Toaster';
 import { Icon } from './components/Icon';
 
@@ -57,6 +58,9 @@ export function App() {
     case 'battle':
       page = <BattlePage key={route.songId ?? 'battle'} songId={route.songId} />;
       break;
+    case 'online':
+      page = <OnlinePage key="online" code={route.code} local={route.local} />;
+      break;
     default:
       page = (
         <div className="page">
@@ -87,7 +91,7 @@ export function App() {
             <span>ห้องคาราโอเกะ</span>
             {queued > 0 && <span className="nav-count">{queued}</span>}
           </a>
-          <a className={route.name === 'battle' ? 'active' : ''} href={paths.battle()}>
+          <a className={route.name === 'battle' || route.name === 'online' ? 'active' : ''} href={paths.battle()}>
             <Icon name="trophy" size={18} />
             <span>แข่งร้อง</span>
           </a>

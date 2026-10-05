@@ -13,6 +13,11 @@ services:
       # อย่าลืมจำกัดโดเมนของ key ใน Google Cloud Console
       - key: VITE_YT_API_KEY
         sync: false
+      # Supabase สำหรับแข่งร้องข้ามเครื่อง (ดู supabase/setup.sql และ README)
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false
     headers:
       # ไฟล์ใน assets/ มี hash ในชื่อ เก็บแคชได้นาน
       - path: /assets/*

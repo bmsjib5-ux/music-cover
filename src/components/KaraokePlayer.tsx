@@ -28,6 +28,8 @@ interface Props {
   extraActions?: ReactNode;
   /** โหมดแข่งร้อง: นับคะแนนเสมอ, ส่งคะแนนรายท่อน/ผลรวมให้หน้าแข่ง */
   battle?: BattleProps;
+  /** เริ่มเล่นพร้อมกันที่เวลานี้ (performance.now()) พร้อมนับถอยหลังบนจอ — ใช้กับการแข่งข้ามเครื่อง */
+  startAt?: number | null;
 }
 
 export interface BattleProps {
@@ -41,11 +43,15 @@ export interface BattleProps {
   scoreboard: { name: string; color: string; score: number | null }[];
   onLine: (line: LineScore) => void;
   onFinish: (result: FinalScore | null) => void;
+  /** แสดงผลรายท่อนเฉพาะท่อนที่คืนค่า true (แข่งข้ามเครื่อง: เฉพาะท่อนของเรา) */
+  feedbackFor?: (lineIndex: number) => boolean;
+  /** ล็อกความเร็วไว้ 100% (แข่งข้ามเครื่องต้องเล่นพร้อมกัน) */
+  lockTempo?: boolean;
 }
 
 const KEY_RANGE = 7;
 
-export function KaraokePlayer({ song, autoPlay, onEnded, onKeyShift, extraActions, battle }: Props) {
+export function KaraokePlayer({ song, autoPlay, onEnded, onKeyShift, extraActions, battle, startAt }: Props) {
   const engine = getEngine();
   const { workletsOk } = useEngineState();
   const shellRef = useRef<HTMLDivElement>(null);
@@ -65,8 +71,10 @@ export function KaraokePlayer({ song, autoPlay, onEnded, onKeyShift, extraAction
   const [offset, setOffset] = useState(song.offset || 0);
   const [fullscreen, setFullscreen] = useState(false);
   const [theater, setTheater] = useState(false);
+  const [countdown, setCountdown] = useState<number | null>(null);
 
   const stereoOk = song.stereo !== false;
+  const tempoLocked = !!battle?.lockTempo;
 
   // โหลดเพลงเข้าเอนจิน
   useEffect(() => {
@@ -80,7 +88,7 @@ export function KaraokePlayer({ song, autoPlay, onEnded, onKeyShift, extraAction
       return;
     }
     engine.load(song.audio, song.stereo);
-    engine.setRate(sp.tempo);
+    engine.setRate(battle?.lockTempo ? 1 : sp.tempo);
     engine.setSemitones(sp.key);
     engine.setSongKey(song.key);
     onKeyShift?.(sp.key);
@@ -96,6 +104,30 @@ export function KaraokePlayer({ song, autoPlay, onEnded, onKeyShift, extraAction
     // โหลดใหม่เฉพาะเมื่อเปลี่ยนเพลง/ไฟล์ (Blob จาก IndexedDB เป็น object ใหม่ทุกครั้งที่อ่าน)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [song.id, song.audioName, song.audio?.size]);
+
+  // นับถอยหลังแล้วเริ่มพร้อมกัน (แข่งข้ามเครื่อง)
+  useEffect(() => {
+    if (startAt === null || startAt === undefined) return;
+    let raf = 0;
+    let started = false;
+    engine.pause();
+    engine.seek(0);
+    const tick = () => {
+      const remain = startAt - performance.now();
+      if (remain <= 0) {
+        setCountdown(null);
+        if (!started) {
+          started = true;
+          engine.play().catch(() => setNeedsTap(true));
+        }
+        return;
+      }
+      setCountdown(Math.ceil(remain / 1000));
+      raf = requestAnimationFrame(tick);
+    };
+    tick();
+    return () => cancelAnimationFrame(raf);
+  }, [startAt, engine]);
 
   useEffect(() => {
     const el = engine.el;
@@ -255,7 +287,7 @@ export function KaraokePlayer({ song, autoPlay, onEnded, onKeyShift, extraAction
               <Icon name="mic" size={16} /> เปิดไมค์เพื่อเริ่มนับคะแนน
             </button>
           )}
-          {scoringOn && score.lastLine && (
+          {scoringOn && score.lastLine && (battle?.feedbackFor?.(score.lastLine.line.index) ?? true) && (
             <div
               key={score.lastLine.at}
               className={`line-feedback ${score.lastLine.line.score >= 75 ? 'hi' : score.lastLine.line.score >= 45 ? 'mid' : 'lo'}`}
@@ -272,7 +304,7 @@ export function KaraokePlayer({ song, autoPlay, onEnded, onKeyShift, extraAction
           </div>
           <div className="stage-badges">
             {songPrefs.key !== 0 && <span className="badge">คีย์ {formatShift(songPrefs.key)}</span>}
-            {songPrefs.tempo !== 1 && <span className="badge">{Math.round(songPrefs.tempo * 100)}%</span>}
+            {!tempoLocked && songPrefs.tempo !== 1 && <span className="badge">{Math.round(songPrefs.tempo * 100)}%</span>}
             {stereoOk && prefs.voice < 1 && <span className="badge">ตัดเสียงร้อง</span>}
             {!battle && scoringOn && score.running !== null && <span className="badge score-badge">🎯 {score.running}</span>}
             {battle && <span className="badge battle-badge">⚔️ {battle.label}</span>}
@@ -310,6 +342,12 @@ export function KaraokePlayer({ song, autoPlay, onEnded, onKeyShift, extraAction
                   : undefined
               }
             />
+          )}
+          {countdown !== null && (
+            <div className="start-countdown" key={countdown}>
+              <span>{countdown}</span>
+              <small>เตรียมร้อง!</small>
+            </div>
           )}
           {(needsTap || loadError) && (
             <div className="stage-overlay">
@@ -399,13 +437,14 @@ export function KaraokePlayer({ song, autoPlay, onEnded, onKeyShift, extraAction
         <Stepper
           icon="gauge"
           label="ความเร็ว"
-          value={`${Math.round(songPrefs.tempo * 100)}%`}
+          value={tempoLocked ? '100%' : `${Math.round(songPrefs.tempo * 100)}%`}
+          disabled={tempoLocked}
           onDec={() => updateSongPrefs({ tempo: Math.max(0.5, Math.round((songPrefs.tempo - 0.05) * 100) / 100) })}
           onInc={() => updateSongPrefs({ tempo: Math.min(1.5, Math.round((songPrefs.tempo + 0.05) * 100) / 100) })}
           onReset={() => updateSongPrefs({ tempo: 1 })}
           decDisabled={songPrefs.tempo <= 0.5}
           incDisabled={songPrefs.tempo >= 1.5}
-          hint="เปลี่ยนความเร็วโดยคีย์ไม่เปลี่ยน"
+          hint={tempoLocked ? 'ล็อกไว้ 100% ระหว่างแข่งออนไลน์' : 'เปลี่ยนความเร็วโดยคีย์ไม่เปลี่ยน'}
         />
         <Slider
           icon="volume"

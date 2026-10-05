@@ -7,6 +7,7 @@ import type { LineScore } from '../lib/scoring';
 import type { Song } from '../lib/types';
 import type { FinalScore } from './useScoring';
 import type { RoomTransport } from '../lib/online/transport';
+import { getDirectory, type RoomListing } from '../lib/online/directory';
 import {
   colorAt,
   makeRoomCode,
@@ -88,6 +89,9 @@ export function useOnlineRoom() {
   const names = useRef(new Map<string, string>());
   const uploadedPath = useRef<string | null>(null);
   const recordedRound = useRef(0);
+  /** ห้องสาธารณะ = แสดงในรายการห้องให้คนอื่นกดเข้าร่วมได้ */
+  const [isPublic, setIsPublic] = useState(true);
+  const hostInfo = useRef<{ name: string; createdAt: number; kind: TransportKind } | null>(null);
 
   // ค่าล่าสุดสำหรับ callback ของ transport
   const st = useRef({ isHost, song, localSong, mode, round, order, phase, peers, finals });
@@ -197,6 +201,7 @@ export function useOnlineRoom() {
 
   const connect = useCallback(
     async (kind: TransportKind, roomCode: string, name: string, host: boolean) => {
+      hostInfo.current = host ? { name, createdAt: Date.now(), kind } : null;
       setPhase('joining');
       setError(null);
       let t: RoomTransport;
@@ -231,7 +236,10 @@ export function useOnlineRoom() {
     [handle],
   );
 
-  const createRoom = (name: string, kind: TransportKind) => connect(kind, makeRoomCode(), name, true);
+  const createRoom = (name: string, kind: TransportKind, publicRoom = true) => {
+    setIsPublic(publicRoom);
+    return connect(kind, makeRoomCode(), name, true);
+  };
   const joinRoom = (roomCode: string, name: string, kind: TransportKind) => connect(kind, roomCode, name, false);
 
   const leave = useCallback(() => {
@@ -243,6 +251,9 @@ export function useOnlineRoom() {
     }
     transportRef.current = null;
     uploadedPath.current = null;
+    const kind = hostInfo.current?.kind;
+    if (kind) void getDirectory(kind).then((d) => d.publish(null), () => {});
+    hostInfo.current = null;
     setPhase('idle');
     setCode(null);
     setPeers([]);
@@ -253,6 +264,35 @@ export function useOnlineRoom() {
   }, []);
 
   useEffect(() => () => leave(), [leave]);
+
+  // โฮสต์: ประกาศห้องในรายการห้อง (อัปเดตเมื่อเพลง/จำนวนคน/สถานะเปลี่ยน)
+  const listing: RoomListing | null =
+    isHost && code && isPublic && hostInfo.current && phase !== 'idle' && phase !== 'joining'
+      ? {
+          code,
+          hostName: hostInfo.current.name,
+          songTitle: song?.title ?? null,
+          youtube: !!song?.youtube,
+          players: Math.max(1, peers.length),
+          playing: phase === 'playing' || phase === 'waiting',
+          createdAt: hostInfo.current.createdAt,
+        }
+      : null;
+  const listingKey = listing ? JSON.stringify(listing) : '';
+  const directoryKind = hostInfo.current?.kind ?? null;
+  useEffect(() => {
+    if (!directoryKind) return;
+    const next = listingKey ? (JSON.parse(listingKey) as RoomListing) : null;
+    let cancelled = false;
+    void getDirectory(directoryKind)
+      .then((d) => !cancelled && d.publish(next))
+      .catch(() => {
+        /* รายการห้องใช้ไม่ได้ ไม่กระทบการแข่ง */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [listingKey, directoryKind]);
 
   /** โฮสต์: แชร์เพลงจากคลังเข้าห้อง (อัปไฟล์เสียง + ส่งเนื้อ/ทำนอง) */
   const shareSong = async (s: Song, newMode: OnlineMode) => {
@@ -436,6 +476,8 @@ export function useOnlineRoom() {
     tallies,
     finals,
     standings,
+    isPublic,
+    setIsPublic,
     transportKind: transportRef.current?.kind ?? null,
     createRoom,
     joinRoom,

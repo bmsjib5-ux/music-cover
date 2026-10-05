@@ -7,6 +7,7 @@ import { YT_STATE, type YTPlayer } from '../lib/youtube';
 import type { Song } from '../lib/types';
 import { useEngineState } from '../hooks/useEngine';
 import { useScoring, type ScoreClock } from '../hooks/useScoring';
+import { useFullscreen } from '../hooks/useFullscreen';
 import type { BattleProps } from './KaraokePlayer';
 import { YouTubePlayer } from './YouTubePlayer';
 import { KaraokeLyrics } from './KaraokeLyrics';
@@ -121,10 +122,7 @@ export function YouTubeKaraoke({ song, autoPlay = true, battle, startAt, onOffse
   const [countdown, setCountdown] = useState<number | null>(null);
   const [stuck, setStuck] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [fullscreen, setFullscreen] = useState(false);
-  /** เต็มหน้าต่างแทน (iPhone ไม่รองรับ Fullscreen API กับ div) */
-  const [theater, setTheater] = useState(false);
-  const shellRef = useRef<HTMLDivElement>(null);
+  const full = useFullscreen();
   const battleRef = useRef(battle);
   battleRef.current = battle;
   const finishedRef = useRef(false);
@@ -253,44 +251,13 @@ export function YouTubeKaraoke({ song, autoPlay = true, battle, startAt, onOffse
     onOffsetChange?.(v);
   };
 
-  // เต็มจอ: ทั้งวิดีโอ + เนื้อเพลง + กระดานคะแนน
-  useEffect(() => {
-    const onFs = () => setFullscreen(!!shellRef.current && document.fullscreenElement === shellRef.current);
-    document.addEventListener('fullscreenchange', onFs);
-    return () => document.removeEventListener('fullscreenchange', onFs);
-  }, []);
-
-  const toggleFullscreen = useCallback(() => {
-    const shell = shellRef.current;
-    if (!shell) return;
-    if (document.fullscreenElement) {
-      void document.exitFullscreen();
-    } else if (theater) {
-      setTheater(false);
-    } else if (shell.requestFullscreen) {
-      shell.requestFullscreen().catch(() => setTheater(true));
-    } else {
-      setTheater(true);
-    }
-  }, [theater]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.code === 'KeyF') toggleFullscreen();
-      else if (e.code === 'Escape' && theater) setTheater(false);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [toggleFullscreen, theater]);
-
   const updateLyricMode = (lyricMode: 'classic' | 'scroll') => setPrefsState(setPrefs({ lyricMode }));
   const feedback = score.lastLine && (battle?.feedbackFor?.(score.lastLine.line.index) ?? true) ? score.lastLine : null;
 
   return (
     <div className="player yt-karaoke">
-      <div ref={shellRef} className={`player-shell yt-shell ${fullscreen ? 'is-full' : ''} ${theater ? 'theater' : ''}`}>
+      {/* เต็มจอ: ทั้งวิดีโอ + เนื้อเพลง + กระดานคะแนน */}
+      <div ref={full.ref} className={`player-shell yt-shell ${full.className}`}>
         <div className="yt-stage">
           <YouTubePlayer
             videoId={yt.videoId}
@@ -302,7 +269,7 @@ export function YouTubeKaraoke({ song, autoPlay = true, battle, startAt, onOffse
             onError={setError}
           />
         </div>
-        <div className={`stage yt-lyrics ${scoringOn ? 'scoring' : ''} ${battle ? 'battle' : ''}`} onDoubleClick={toggleFullscreen}>
+        <div className={`stage yt-lyrics ${scoringOn ? 'scoring' : ''} ${battle ? 'battle' : ''}`} onDoubleClick={full.toggle}>
           {scoringOn && score.status === 'ready' && (
             <PitchLane melody={null} showMelody={false} keyShift={0} getTime={getTime} trailRef={score.trailRef} />
           )}
@@ -367,11 +334,11 @@ export function YouTubeKaraoke({ song, autoPlay = true, battle, startAt, onOffse
           <button
             type="button"
             className="icon-btn"
-            onClick={toggleFullscreen}
-            aria-label={fullscreen || theater ? 'ออกจากเต็มจอ' : 'เต็มจอ'}
+            onClick={full.toggle}
+            aria-label={full.active ? 'ออกจากเต็มจอ' : 'เต็มจอ'}
             title="เต็มจอ (F)"
           >
-            <Icon name={fullscreen || theater ? 'minimize' : 'maximize'} />
+            <Icon name={full.active ? 'minimize' : 'maximize'} />
           </button>
         </div>
       </div>

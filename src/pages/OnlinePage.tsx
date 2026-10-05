@@ -19,6 +19,8 @@ import {
   type PeerInfo,
 } from '../lib/online/protocol';
 import { useOnlineRoom, type OnlineRoom, type TransportKind } from '../hooks/useOnlineRoom';
+import { getDirectory, type RoomListing } from '../lib/online/directory';
+import { MAX_PLAYERS } from '../lib/battle';
 import type { Song } from '../lib/types';
 import { KaraokePlayer, type BattleProps } from '../components/KaraokePlayer';
 import { YouTubeKaraoke } from '../components/YouTubeKaraoke';
@@ -115,9 +117,96 @@ function SetupHelp() {
   );
 }
 
+/** รายการห้องที่เปิดอยู่ (null = กำลังโหลด) */
+function useRoomList(kind: TransportKind): { rooms: RoomListing[] | null; error: boolean } {
+  const [rooms, setRooms] = useState<RoomListing[] | null>(null);
+  const [error, setError] = useState(false);
+  useEffect(() => {
+    let off: (() => void) | null = null;
+    let cancelled = false;
+    getDirectory(kind)
+      .then((d) => {
+        if (cancelled) return;
+        off = d.onRooms(setRooms);
+      })
+      .catch(() => !cancelled && setError(true));
+    return () => {
+      cancelled = true;
+      off?.();
+    };
+  }, [kind]);
+  return { rooms, error };
+}
+
+function sinceText(at: number): string {
+  const min = Math.floor((Date.now() - at) / 60000);
+  if (min < 1) return 'เพิ่งเปิด';
+  if (min < 60) return `${min} นาทีที่แล้ว`;
+  return `${Math.floor(min / 60)} ชม. ที่แล้ว`;
+}
+
+function RoomList({ kind, joining, onJoin }: { kind: TransportKind; joining: boolean; onJoin: (code: string) => void }) {
+  const { rooms, error } = useRoomList(kind);
+  // รีเฟรชข้อความ "กี่นาทีที่แล้ว"
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const h = setInterval(() => tick((n) => n + 1), 30000);
+    return () => clearInterval(h);
+  }, []);
+  return (
+    <section className="card room-list-card">
+      <header className="card-head">
+        <h2>
+          <Icon name="list" /> ห้องที่เปิดอยู่ {rooms && rooms.length > 0 && <span className="count">{rooms.length}</span>}
+        </h2>
+        {rooms !== null && !error && <span className="live-dot">อัปเดตสด</span>}
+      </header>
+      {error ? (
+        <p className="muted">โหลดรายการห้องไม่สำเร็จ — ยังเข้าห้องด้วยรหัสได้ตามปกติ</p>
+      ) : rooms === null ? (
+        <p className="muted">กำลังโหลดรายการห้อง…</p>
+      ) : rooms.length === 0 ? (
+        <p className="muted">ยังไม่มีห้องเปิดอยู่ตอนนี้ — สร้างห้องแรกเลย!</p>
+      ) : (
+        <ul className="room-list">
+          {rooms.map((r) => {
+            const full = r.players >= MAX_PLAYERS;
+            return (
+              <li key={r.code}>
+                <div className="room-list-code">{r.code}</div>
+                <div className="room-list-info">
+                  <strong>👑 {r.hostName}</strong>
+                  <small className="muted">
+                    {r.songTitle ? (
+                      <>
+                        {r.youtube ? '📺 ' : '🎵 '}
+                        {r.songTitle}
+                      </>
+                    ) : (
+                      'ยังไม่เลือกเพลง'
+                    )}{' '}
+                    · {sinceText(r.createdAt)}
+                  </small>
+                </div>
+                <span className={`peer-status ${r.playing ? 'loading' : full ? '' : 'ready'}`}>
+                  {r.playing ? 'กำลังแข่ง' : full ? 'ผู้ร้องเต็ม' : 'รอผู้เล่น'} · {r.players}/{MAX_PLAYERS}
+                </span>
+                <button type="button" className="btn btn-sm btn-primary" disabled={joining} onClick={() => onJoin(r.code)}>
+                  {full || r.playing ? 'เข้าชม' : 'เข้าร่วม'}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function Entry({ room, kind, initialCode }: { room: OnlineRoom; kind: TransportKind; initialCode?: string }) {
   const [name, setName] = useState(loadName);
   const [code, setCode] = useState(normalizeRoomCode(initialCode ?? ''));
+  const [publicRoom, setPublicRoom] = useState(true);
   const joining = room.phase === 'joining';
 
   const remember = () => {
@@ -138,16 +227,28 @@ function Entry({ room, kind, initialCode }: { room: OnlineRoom; kind: TransportK
 
   return (
     <div className="online-entry">
-      <section className="card">
+      <section className="card online-name">
         <label className="field">
-          <span>ชื่อของคุณ</span>
+          <span>ชื่อของคุณ (ใช้ทั้งตอนสร้างห้องและเข้าห้อง)</span>
           <input value={name} maxLength={20} onChange={(e) => setName(e.target.value)} placeholder="เช่น มด" />
         </label>
+      </section>
+      <RoomList kind={kind} joining={joining} onJoin={(c) => checkName() && void room.joinRoom(c, name.trim(), kind)} />
+      <section className="card">
         <h2>
           <Icon name="plus" /> สร้างห้องใหม่
         </h2>
         <p className="muted">คุณจะเป็นโฮสต์: เลือกเพลงจากคลังของคุณหรือจาก YouTube แล้วส่งลิงก์ห้องให้เพื่อน</p>
-        <button type="button" className="btn btn-primary btn-lg" disabled={joining} onClick={() => checkName() && void room.createRoom(name.trim(), kind)}>
+        <label className="check">
+          <input type="checkbox" checked={publicRoom} onChange={(e) => setPublicRoom(e.target.checked)} />
+          แสดงห้องในรายการ ให้ใครก็กดเข้าร่วมได้
+        </label>
+        <button
+          type="button"
+          className="btn btn-primary btn-lg"
+          disabled={joining}
+          onClick={() => checkName() && void room.createRoom(name.trim(), kind, publicRoom)}
+        >
           <Icon name="trophy" /> {joining ? 'กำลังเชื่อมต่อ…' : 'สร้างห้องแข่ง'}
         </button>
       </section>
@@ -265,6 +366,12 @@ function Lobby({ room, local }: { room: OnlineRoom; local: boolean }) {
           </div>
         </div>
         <p className="muted small">ส่งลิงก์หรือรหัสนี้ให้เพื่อน (ผู้ร้องได้สูงสุด 4 คน คนที่เกินเป็นผู้ชม)</p>
+        {room.isHost && (
+          <label className="check">
+            <input type="checkbox" checked={room.isPublic} onChange={(e) => room.setIsPublic(e.target.checked)} />
+            แสดงห้องนี้ในรายการห้องที่เปิดอยู่
+          </label>
+        )}
         <h2>
           <Icon name="users" /> ในห้อง ({room.peers.length})
         </h2>

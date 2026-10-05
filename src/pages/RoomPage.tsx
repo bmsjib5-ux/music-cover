@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { onSongsChanged, songsDb } from '../lib/db';
 import { queue, useQueue } from '../lib/queue';
 import { newId } from '../lib/id';
@@ -13,6 +13,7 @@ import { YouTubePlayer } from '../components/YouTubePlayer';
 import { MicPanel } from '../components/MicPanel';
 import { getEngine } from '../audio/engine';
 import { Icon } from '../components/Icon';
+import { useFullscreen } from '../hooks/useFullscreen';
 
 const YT_RATES = [0.75, 1, 1.25];
 
@@ -118,6 +119,61 @@ function YouTubePicker() {
   );
 }
 
+/** วิดีโอ YouTube ในห้องคาราโอเกะ (มีปุ่มเต็มจอที่ยังเห็นปุ่มข้ามเพลง/ความเร็ว) */
+function YouTubeNowPlaying({
+  item,
+  rate,
+  setRate,
+  skip,
+}: {
+  item: Extract<QueueItem, { kind: 'youtube' }>;
+  rate: number;
+  setRate: (r: number) => void;
+  skip: ReactNode;
+}) {
+  const full = useFullscreen();
+  return (
+    <div className="player">
+      <div ref={full.ref} className={`player-shell yt-room-shell ${full.className}`}>
+        <div className="yt-stage">
+          <YouTubePlayer
+            videoId={item.videoId}
+            playKey={item.key}
+            rate={rate}
+            onEnded={() => queue.advance()}
+            onError={(msg) => {
+              toast(`${msg} — ข้ามไปเพลงถัดไป`, 'error', 4000);
+              setTimeout(() => {
+                if (queue.get().now?.key === item.key) queue.advance();
+              }, 2500);
+            }}
+          />
+        </div>
+        <div className="transport">
+          <div className="np-title">
+            <strong>{item.title}</strong>
+            <small className="muted">{item.channel}</small>
+          </div>
+          <div className="seg" title="ความเร็ว (คีย์ไม่เปลี่ยน)">
+            {YT_RATES.map((r) => (
+              <button key={r} type="button" className={rate === r ? 'on' : ''} onClick={() => setRate(r)}>
+                {r}x
+              </button>
+            ))}
+          </div>
+          {skip}
+          <button type="button" className="icon-btn" onClick={full.toggle} aria-label={full.active ? 'ออกจากเต็มจอ' : 'เต็มจอ'} title="เต็มจอ (F)">
+            <Icon name={full.active ? 'minimize' : 'maximize'} />
+          </button>
+        </div>
+      </div>
+      <p className="muted small yt-note">
+        วิดีโอ YouTube ปรับคีย์/ตัดเสียงร้องไม่ได้ (ข้อจำกัดของ YouTube) แต่ใช้ไมค์ + Auto-Tune ร้องทับได้ — อยากปรับคีย์ ให้เพิ่มเพลงเป็นไฟล์ในคลัง
+      </p>
+    </div>
+  );
+}
+
 function NowPlaying({ item }: { item: QueueItem }) {
   const [song, setSong] = useState<Song | null>(null);
   const [ytRate, setYtRate] = useState(1);
@@ -148,38 +204,7 @@ function NowPlaying({ item }: { item: QueueItem }) {
   return (
     <>
       {item.kind === 'youtube' ? (
-        <div className="player">
-          <div className="yt-stage">
-            <YouTubePlayer
-              videoId={item.videoId}
-              rate={ytRate}
-              onEnded={() => queue.advance()}
-              onError={(msg) => {
-                toast(`${msg} — ข้ามไปเพลงถัดไป`, 'error', 4000);
-                setTimeout(() => {
-                  if (queue.get().now?.key === item.key) queue.advance();
-                }, 2500);
-              }}
-            />
-          </div>
-          <div className="transport">
-            <div className="np-title">
-              <strong>{item.title}</strong>
-              <small className="muted">{item.channel}</small>
-            </div>
-            <div className="seg" title="ความเร็ว (คีย์ไม่เปลี่ยน)">
-              {YT_RATES.map((r) => (
-                <button key={r} type="button" className={ytRate === r ? 'on' : ''} onClick={() => setYtRate(r)}>
-                  {r}x
-                </button>
-              ))}
-            </div>
-            {skip}
-          </div>
-          <p className="muted small yt-note">
-            วิดีโอ YouTube ปรับคีย์/ตัดเสียงร้องไม่ได้ (ข้อจำกัดของ YouTube) แต่ใช้ไมค์ + Auto-Tune ร้องทับได้ — อยากปรับคีย์ ให้เพิ่มเพลงเป็นไฟล์ในคลัง
-          </p>
-        </div>
+        <YouTubeNowPlaying item={item} rate={ytRate} setRate={setYtRate} skip={skip} />
       ) : song ? (
         <KaraokePlayer song={song} autoPlay onEnded={() => queue.advance()} onKeyShift={setKeyShift} extraActions={skip} />
       ) : (
@@ -215,7 +240,7 @@ export function RoomPage() {
       <div className="room-layout">
         <div className="room-main">
           {now ? (
-            <NowPlaying key={now.key} item={now} />
+            <NowPlaying key={now.kind === 'youtube' ? 'youtube' : now.key} item={now} />
           ) : (
             <div className="card room-idle">
               <Icon name="mic" size={44} />

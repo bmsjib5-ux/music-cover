@@ -6,6 +6,38 @@ import type { PeerInfo, RoomMessage } from './protocol';
 
 const DAY = 24 * 60 * 60 * 1000;
 
+let clientPromise: Promise<SupabaseClient> | null = null;
+
+/** client เดียวทั้งแอป — ห้องแข่งและรายการห้องใช้ WebSocket เส้นเดียวกัน */
+export function getSupabaseClient(): Promise<SupabaseClient> {
+  if (!clientPromise) {
+    clientPromise = import('@supabase/supabase-js').then(({ createClient }) =>
+      createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: { persistSession: false, autoRefreshToken: false },
+        realtime: { params: { eventsPerSecond: 20 } },
+      }),
+    );
+    clientPromise.catch(() => (clientPromise = null));
+  }
+  return clientPromise;
+}
+
+/** subscribe channel แล้วรอจนเชื่อมต่อสำเร็จ */
+export function subscribeChannel(channel: RealtimeChannel, what: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`เชื่อมต่อ${what}ไม่สำเร็จ (หมดเวลา)`)), 15000);
+    channel.subscribe((status, err) => {
+      if (status === 'SUBSCRIBED') {
+        clearTimeout(timer);
+        resolve();
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        clearTimeout(timer);
+        reject(err ?? new Error(`เชื่อมต่อ${what}ไม่สำเร็จ (${status})`));
+      }
+    });
+  });
+}
+
 /** ห้องแข่งผ่าน Supabase Realtime (broadcast + presence) และไฟล์เพลงใน Storage */
 export class SupabaseTransport implements RoomTransport {
   readonly kind = 'supabase' as const;
@@ -17,13 +49,7 @@ export class SupabaseTransport implements RoomTransport {
   private peerListeners = new Set<(peers: PeerInfo[]) => void>();
 
   private async getClient(): Promise<SupabaseClient> {
-    if (!this.client) {
-      const { createClient } = await import('@supabase/supabase-js');
-      this.client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-        auth: { persistSession: false, autoRefreshToken: false },
-        realtime: { params: { eventsPerSecond: 20 } },
-      });
-    }
+    if (!this.client) this.client = await getSupabaseClient();
     return this.client;
   }
 
@@ -39,18 +65,8 @@ export class SupabaseTransport implements RoomTransport {
       this.msgListeners.forEach((fn) => fn(p.msg, p.from));
     });
     channel.on('presence', { event: 'sync' }, () => this.emitPeers());
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('เชื่อมต่อห้องไม่สำเร็จ (หมดเวลา)')), 15000);
-      channel.subscribe((status, err) => {
-        if (status === 'SUBSCRIBED') {
-          clearTimeout(timer);
-          void channel.track(this.me!).then(() => resolve(), reject);
-        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          clearTimeout(timer);
-          reject(err ?? new Error(`เชื่อมต่อห้องไม่สำเร็จ (${status})`));
-        }
-      });
-    });
+    await subscribeChannel(channel, 'ห้อง');
+    await channel.track(this.me);
   }
 
   private emitPeers(): void {

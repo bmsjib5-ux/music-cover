@@ -10,9 +10,11 @@ interface Props {
   autoplay?: boolean;
   onReady?: (player: YTPlayer) => void;
   onState?: (state: number) => void;
+  /** เปลี่ยนค่านี้เพื่อเริ่มวิดีโอใหม่ (เช่น คิวเพลงเดิมซ้ำสองครั้งติดกัน) */
+  playKey?: string;
 }
 
-export function YouTubePlayer({ videoId, rate, onEnded, onError, autoplay = true, onReady, onState }: Props) {
+export function YouTubePlayer({ videoId, rate, onEnded, onError, autoplay = true, onReady, onState, playKey }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YTPlayer | null>(null);
   const readyRef = useRef(false);
@@ -20,6 +22,7 @@ export function YouTubePlayer({ videoId, rate, onEnded, onError, autoplay = true
   cb.current = { onEnded, onError, rate, onReady, onState };
   const autoplayRef = useRef(autoplay);
   const firstId = useRef(videoId);
+  const firstKey = useRef(playKey);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,12 +64,14 @@ export function YouTubePlayer({ videoId, rate, onEnded, onError, autoplay = true
     };
   }, []);
 
+  // เปลี่ยนวิดีโอโดยใช้ผู้เล่นตัวเดิม (ไม่หลุดจากโหมดเต็มจอ)
   useEffect(() => {
-    if (readyRef.current && playerRef.current && videoId !== firstId.current) {
+    if (readyRef.current && playerRef.current && (videoId !== firstId.current || playKey !== firstKey.current)) {
       firstId.current = videoId;
+      firstKey.current = playKey;
       playerRef.current.loadVideoById(videoId);
     }
-  }, [videoId]);
+  }, [videoId, playKey]);
 
   useEffect(() => {
     if (readyRef.current) playerRef.current?.setPlaybackRate(rate);

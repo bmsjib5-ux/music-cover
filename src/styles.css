@@ -2783,6 +2783,47 @@ details li {
 .yt-selected .row {
   margin-bottom: 8px;
 }
+.player-shell.is-full .yt-stage,
+.player-shell.theater .yt-stage {
+  flex: none;
+  width: 100%;
+  height: min(52vh, 56.25vw);
+  max-height: none;
+  aspect-ratio: auto;
+}
+/* เต็มจอ: เนื้อเพลงย่อตามความสูงที่เหลือด้วย ไม่ให้ทับกระดานคะแนน */
+.yt-shell.is-full .stage.yt-lyrics,
+.yt-shell.theater .stage.yt-lyrics {
+  min-height: 0;
+  container-type: size;
+}
+.yt-shell.is-full .stage.yt-lyrics .classic-line,
+.yt-shell.theater .stage.yt-lyrics .classic-line {
+  font-size: clamp(16px, min(5.4cqw, 15cqh), 76px);
+}
+/* มือถือแนวนอน/จอเตี้ย: วิดีโอซ้าย เนื้อเพลงขวา */
+@media (orientation: landscape) and (max-height: 560px) {
+  .yt-shell.is-full,
+  .yt-shell.theater {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+  .yt-shell.is-full .yt-stage,
+  .yt-shell.theater .yt-stage {
+    height: auto;
+    aspect-ratio: 16 / 9;
+    align-self: center;
+  }
+  .yt-shell.is-full .transport,
+  .yt-shell.theater .transport {
+    grid-column: 1 / -1;
+  }
+  .yt-shell.is-full .stage.yt-lyrics .classic-line,
+  .yt-shell.theater .stage.yt-lyrics .classic-line {
+    font-size: clamp(16px, min(8cqw, 15cqh), 60px);
+  }
+}
 @media (max-width: 720px) {
   .stage.yt-lyrics {
     aspect-ratio: 4 / 3;

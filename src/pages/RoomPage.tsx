@@ -254,7 +254,18 @@ export function RoomPage() {
               ) : (
                 <>
                   <h2>ยังไม่มีเพลงในคิว</h2>
-                  <p className="muted">เพิ่มเพลงจากแผงด้านข้าง — วางลิงก์ YouTube หรือเลือกจากคลังเพลงของคุณ</p>
+                  <p className="muted">เพิ่มเพลงจากแผงเลือกเพลง — วางลิงก์ YouTube หรือเลือกจากคลังเพลงของคุณ</p>
+                  <button
+                    type="button"
+                    className="btn btn-primary mobile-only"
+                    onClick={() => {
+                      const box = document.getElementById('pick-song');
+                      box?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      box?.querySelector('input')?.focus({ preventScroll: true });
+                    }}
+                  >
+                    <Icon name="search" size={18} /> เลือกเพลง
+                  </button>
                 </>
               )}
             </div>
@@ -304,7 +315,7 @@ export function RoomPage() {
             <p className="muted small">💡 เปิดหน้านี้อีกแท็บ/อีกหน้าต่างเพื่อเลือกเพลง คิวจะซิงก์กันอัตโนมัติ</p>
           </section>
 
-          <section className="card">
+          <section className="card" id="pick-song">
             <div className="tabs">
               <button type="button" className={tab === 'youtube' ? 'on' : ''} onClick={() => setTab('youtube')}>
                 <Icon name="youtube" size={18} /> YouTube

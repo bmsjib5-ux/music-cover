@@ -7,6 +7,8 @@ import { toast } from '../lib/toast';
 import { paths } from '../lib/router';
 import { syncedCount } from '../lib/lyrics';
 import {
+  BUILTIN_YT_KEY,
+  YouTubeApiError,
   fetchVideoInfo,
   parseYouTubeId,
   searchYouTube,
@@ -119,6 +121,9 @@ function YouTubePicker() {
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState<YouTubeVideo[] | null>(null);
   const [apiKeyDraft, setApiKeyDraft] = useState(prefs.ytApiKey);
+  /** คำค้นที่ค้นในเว็บไม่สำเร็จ → แสดงปุ่มไปค้นบน YouTube แทน */
+  const [fallback, setFallback] = useState<string | null>(null);
+  const apiKey = prefs.ytApiKey || BUILTIN_YT_KEY;
 
   const addVideo = (v: YouTubeVideo) => {
     queue.add({ key: newId(), kind: 'youtube', videoId: v.videoId, title: v.title, channel: v.channel });
@@ -136,8 +141,19 @@ function YouTubePicker() {
         if (!info) toast('วิดีโอนี้อาจเป็นส่วนตัวหรือไม่อนุญาตให้ฝัง แต่จะลองเล่นให้', 'error');
         addVideo(info ?? { videoId: id, title: `YouTube ${id}`, channel: '', thumbnail: thumbnailUrl(id) });
         setInput('');
-      } else if (prefs.ytApiKey) {
-        setResults(await searchYouTube(text, prefs.ytApiKey, prefs.ytKaraokeOnly));
+      } else if (apiKey) {
+        setFallback(null);
+        try {
+          setResults(await searchYouTube(text, apiKey, prefs.ytKaraokeOnly));
+        } catch (err) {
+          setResults(null);
+          setFallback(text);
+          if (err instanceof YouTubeApiError && err.quotaExceeded) {
+            toast('โควตาค้นหาของวันนี้หมดแล้ว — กดปุ่มด้านล่างเพื่อค้นบน YouTube แทน', 'info', 6000);
+          } else {
+            toast(`ค้นหาในเว็บไม่สำเร็จ: ${(err as Error).message}`, 'error', 6000);
+          }
+        }
       } else {
         window.open(youtubeSearchUrl(text, prefs.ytKaraokeOnly), '_blank', 'noopener');
         toast('เปิดผลค้นหาบน YouTube แล้ว — คัดลอกลิงก์วิดีโอมาวางที่นี่', 'info', 5000);
@@ -161,7 +177,7 @@ function YouTubePicker() {
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={prefs.ytApiKey ? 'พิมพ์ชื่อเพลง หรือวางลิงก์ YouTube' : 'วางลิงก์ YouTube (หรือพิมพ์ชื่อเพลงเพื่อค้นใน YouTube)'}
+          placeholder={apiKey ? 'พิมพ์ชื่อเพลง หรือวางลิงก์ YouTube' : 'วางลิงก์ YouTube (หรือพิมพ์ชื่อเพลงเพื่อค้นใน YouTube)'}
           aria-label="ลิงก์หรือชื่อเพลง"
         />
         <button type="submit" className="btn btn-primary" disabled={busy || !input.trim()}>
@@ -176,6 +192,12 @@ function YouTubePicker() {
         />
         ค้นหาเฉพาะเวอร์ชันคาราโอเกะ
       </label>
+
+      {fallback && (
+        <a className="btn btn-ghost btn-sm yt-fallback" href={youtubeSearchUrl(fallback, prefs.ytKaraokeOnly)} target="_blank" rel="noopener noreferrer">
+          <Icon name="youtube" size={16} /> ค้นหา "{fallback}" บน YouTube
+        </a>
+      )}
 
       {results && (
         <ul className="yt-results">
@@ -196,10 +218,12 @@ function YouTubePicker() {
       )}
 
       <details className="help">
-        <summary>ค้นหาใน YouTube ได้ทันที (ใส่ API key)</summary>
+        <summary>{BUILTIN_YT_KEY ? 'ใช้ API key ของตัวเอง (ไม่บังคับ)' : 'ค้นหาใน YouTube ได้ทันที (ใส่ API key)'}</summary>
         <p className="muted small">
-          ถ้าไม่มี key ระบบจะเปิดหน้าค้นหาของ YouTube ให้แทน หากต้องการค้นในหน้านี้เลย ให้สร้าง API key ฟรีที่ Google Cloud Console (เปิดใช้ YouTube Data API v3) แล้วนำมาวาง —
-          key จะเก็บไว้ในเบราว์เซอร์นี้เท่านั้น
+          {BUILTIN_YT_KEY
+            ? 'เว็บนี้ค้นหาได้ทันทีอยู่แล้ว โดยทุกคนใช้โควตาร่วมกันวันละประมาณ 100 ครั้ง ถ้าโควตาหมดบ่อย ใส่ key ของคุณเองได้ (สร้างฟรีที่ Google Cloud Console → YouTube Data API v3)'
+            : 'ถ้าไม่มี key ระบบจะเปิดหน้าค้นหาของ YouTube ให้แทน หากต้องการค้นในหน้านี้เลย ให้สร้าง API key ฟรีที่ Google Cloud Console (เปิดใช้ YouTube Data API v3) แล้วนำมาวาง'}{' '}
+          — key ของคุณจะเก็บไว้ในเบราว์เซอร์นี้เท่านั้น
         </p>
         <div className="yt-form">
           <input value={apiKeyDraft} onChange={(e) => setApiKeyDraft(e.target.value)} placeholder="YouTube Data API key" aria-label="API key" />

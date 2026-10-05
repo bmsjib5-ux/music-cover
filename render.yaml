@@ -9,6 +9,10 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
+      # YouTube Data API key ที่ให้ทุกคนค้นหาได้ทันที — กรอกค่าบน Render (ไม่เก็บใน repo)
+      # อย่าลืมจำกัดโดเมนของ key ใน Google Cloud Console
+      - key: VITE_YT_API_KEY
+        sync: false
     headers:
       # ไฟล์ใน assets/ มี hash ในชื่อ เก็บแคชได้นาน
       - path: /assets/*

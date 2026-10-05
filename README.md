@@ -24,7 +24,7 @@
 
 **ห้องคาราโอเกะ (คิวเพลง)**
 - ต่อคิวเพลงจากคลังในเครื่อง**และ YouTube** ปะปนกัน เพลงจบเล่นเพลงถัดไปอัตโนมัติ, ข้าม/เลื่อน/ลบคิวได้
-- วางลิงก์ YouTube ได้ทุกรูปแบบ หรือค้นหาในหน้าเว็บด้วย YouTube Data API key ของผู้ใช้เอง (ไม่ใส่ key จะเปิดหน้าค้นหาของ YouTube ให้)
+- วางลิงก์ YouTube ได้ทุกรูปแบบ หรือค้นหาในหน้าเว็บด้วย YouTube Data API — ฝัง key ไว้ตอน build ให้ทุกคนค้นได้ทันที (`VITE_YT_API_KEY`) หรือให้ผู้ใช้ใส่ key ของตัวเอง ผลค้นหาถูกจำไว้ 1 วันเพื่อประหยัดโควตา และถ้าโควตาหมดจะมีปุ่มไปค้นบน YouTube แทน
 - คิวซิงก์ข้ามแท็บ — เปิดจอใหญ่ไว้แท็บหนึ่ง แล้วเลือกเพลงจากอีกแท็บได้
 - วิดีโอ YouTube ปรับความเร็วได้ และร้องทับด้วยไมค์ + Auto-Tune ได้ (ปรับคีย์/ตัดเสียงร้องไม่ได้ เพราะเบราว์เซอร์ไม่ให้เข้าถึงเสียงของ YouTube)
 
@@ -48,6 +48,9 @@ repo มีไฟล์ `render.yaml` ไว้แล้ว
 3. กด **Apply** — Render จะรัน `npm ci && npm run build` แล้วเสิร์ฟโฟลเดอร์ `dist/` ให้ (มี https ในตัว ไมค์/Auto-Tune ใช้ได้)
 
 หรือสร้างเองแบบ **New → Static Site**: Build Command `npm ci && npm run build`, Publish Directory `dist`
+
+**ให้ทุกคนค้นหา YouTube ได้ทันที:** ใน Render → service → **Environment** เพิ่มตัวแปร `VITE_YT_API_KEY` = API key ของ YouTube Data API v3 แล้วกด **Save, rebuild, and deploy** (ค่าถูกฝังตอน build จึงต้อง build ใหม่ทุกครั้งที่เปลี่ยน key)
+> key จะมองเห็นได้ในไฟล์ JS ของเว็บ — ต้องตั้ง *Application restrictions → Websites* ให้ใช้ได้เฉพาะโดเมนของคุณ และ *API restrictions* เฉพาะ YouTube Data API v3 · โควตาฟรีวันละ 10,000 หน่วย (ค้นหาได้ ~100 ครั้ง/วัน ใช้ร่วมกันทุกคน)
 
 ### Deploy ฟรีบน GitHub Pages
 1. Settings → Pages → Build and deployment → Source: **GitHub Actions**

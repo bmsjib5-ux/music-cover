@@ -1694,6 +1694,12 @@ details li {
   overflow: auto;
   margin-top: 10px;
 }
+.yt-fallback {
+  margin-top: 10px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .yt-form {
   display: flex;
   gap: 8px;

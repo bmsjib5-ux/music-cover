@@ -116,6 +116,9 @@ export function SingPage({ id }: { id: string }) {
           <a className="btn btn-ghost" href={paths.edit(song.id)}>
             <Icon name="edit" size={18} /> แก้ไข
           </a>
+          <a className="btn btn-ghost" href={paths.battle(song.id)}>
+            <Icon name="trophy" size={18} /> ชวนเพื่อนแข่ง
+          </a>
           <button
             type="button"
             className="btn btn-ghost"

@@ -14,7 +14,7 @@ interface Props {
 const NEXT_SECONDS = 12;
 
 /** เสียงแตรสั้นๆ ตอนประกาศคะแนน */
-function fanfare(total: number): void {
+export function fanfare(total: number): void {
   const ctx = getEngine().ctx;
   const notes = total >= 85 ? [72, 76, 79, 84] : total >= 55 ? [67, 72, 76] : [67, 64];
   const t0 = ctx.currentTime + 0.05;

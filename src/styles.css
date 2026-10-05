@@ -1370,6 +1370,335 @@ details li {
   }
 }
 
+/* ---------- battle ---------- */
+.line-tag {
+  display: inline-block;
+  margin-right: 0.4em;
+  padding: 0.05em 0.5em;
+  border-radius: 999px;
+  color: #120f2b;
+  font-family: var(--font);
+  font-size: 0.42em;
+  font-weight: 700;
+  line-height: 1.6;
+  vertical-align: middle;
+  -webkit-text-fill-color: #120f2b;
+  filter: none;
+}
+.battle-badge {
+  background: rgba(123, 92, 255, 0.55) !important;
+  font-weight: 600;
+}
+.battle-board {
+  position: absolute;
+  left: 3.5cqw;
+  right: 32%;
+  top: 2.8cqw;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: clamp(11px, 1.7cqw, 16px);
+}
+.battle-board-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 6.5em;
+  max-width: 11em;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid;
+  background: rgba(0, 0, 0, 0.55);
+}
+.battle-board-row .dot {
+  width: 0.7em;
+  height: 0.7em;
+  border-radius: 50%;
+  flex: none;
+}
+.battle-board-row .name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.battle-board-row strong {
+  font-variant-numeric: tabular-nums;
+}
+.stage.battle .stage-meta {
+  display: none;
+}
+.feedback-who {
+  margin-right: 0.35em;
+  padding: 0 0.45em;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+.battle-setup {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.battle-songs,
+.battle-players {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.battle-songs {
+  max-height: 460px;
+  overflow: auto;
+}
+.battle-song {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+}
+.battle-song.on {
+  border-color: rgba(255, 79, 163, 0.6);
+  background: rgba(255, 79, 163, 0.1);
+}
+.battle-song input,
+.battle-mode input {
+  accent-color: var(--accent);
+}
+.battle-song-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(255, 79, 163, 0.35), rgba(123, 92, 255, 0.35));
+  flex: none;
+}
+.battle-song-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.35;
+}
+.battle-song-info strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.battle-players li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.player-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  flex: none;
+  box-shadow: 0 0 10px currentColor;
+}
+.battle-modes {
+  display: grid;
+  gap: 6px;
+}
+.battle-mode {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+}
+.battle-mode small {
+  grid-column: 2;
+}
+.battle-mode.on {
+  border-color: rgba(255, 79, 163, 0.6);
+  background: rgba(255, 79, 163, 0.1);
+}
+.battle-tips {
+  margin: 14px 0;
+  padding-left: 18px;
+}
+.battle-start {
+  width: 100%;
+}
+.handoff {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 36px 20px;
+  text-align: center;
+  border-width: 2px;
+}
+.handoff-mic {
+  display: grid;
+  place-items: center;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  color: #120f2b;
+  animation: pulse 1.4s infinite;
+}
+.handoff-name {
+  font-size: clamp(1.6rem, 5vw, 2.4rem);
+  margin: 0;
+  justify-content: center;
+}
+.handoff .btn-primary {
+  margin-top: 10px;
+  color: #120f2b;
+  box-shadow: none;
+}
+.mini-board {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin: 6px 0;
+}
+.mini-board span {
+  padding: 3px 12px;
+  border-radius: 999px;
+  border: 1px solid;
+  background: rgba(0, 0, 0, 0.2);
+}
+.battle-result {
+  position: relative;
+  overflow: hidden;
+  text-align: center;
+  padding: 28px 18px;
+}
+.battle-winner {
+  justify-content: center;
+  font-size: clamp(1.5rem, 4.5vw, 2.3rem);
+  margin-bottom: 14px;
+}
+.standings {
+  list-style: none;
+  margin: 0 auto 18px;
+  padding: 0;
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+}
+.standings li {
+  display: grid;
+  grid-template-columns: 2.4em 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid;
+  background: rgba(0, 0, 0, 0.22);
+  transition: transform 0.3s;
+}
+.standings li.winner {
+  transform: scale(1.03);
+  box-shadow: 0 0 24px rgba(255, 209, 102, 0.25);
+}
+.standing-rank {
+  font-size: 1.6rem;
+  text-align: center;
+}
+.standing-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.standing-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.standing-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.standing-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}
+.standing-score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.1;
+}
+.standing-score strong {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  font-variant-numeric: tabular-nums;
+}
+.confetti {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.confetti i {
+  position: absolute;
+  top: -12px;
+  width: 8px;
+  height: 14px;
+  border-radius: 2px;
+  opacity: 0.9;
+  animation: confetti-fall linear forwards;
+}
+@keyframes confetti-fall {
+  to {
+    top: 105%;
+    transform: rotate(540deg) translateX(30px);
+    opacity: 0.6;
+  }
+}
+.champ-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.champ-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.18);
+}
+.champ-rank {
+  width: 1.8em;
+  text-align: center;
+  color: var(--muted);
+}
+.champ-list .muted {
+  margin-left: auto;
+}
+@media (max-width: 860px) {
+  .battle-setup {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ---------- toggles ---------- */
 .toggle {
   display: flex;

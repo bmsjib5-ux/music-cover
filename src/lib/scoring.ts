@@ -19,6 +19,8 @@ export interface LineScore {
   stability: number | null;
   label: string;
   silent: boolean;
+  /** น้ำหนักตามความยาวท่อน (วินาที) */
+  weight: number;
 }
 
 export interface ScoreResult {
@@ -177,7 +179,17 @@ export class ScoreSession {
     else if (this.mode === 'melody') raw = p * (0.7 + 0.1 * st) + 0.2 * timing;
     else raw = p * (0.55 + 0.1 * st) + 0.35 * timing;
     const score = curve(raw);
-    const result: LineScore = { index: i, text: line.text, score, pitch, timing, stability, label: lineLabel(score, silent), silent };
+    const result: LineScore = {
+      index: i,
+      text: line.text,
+      score,
+      pitch,
+      timing,
+      stability,
+      label: lineLabel(score, silent),
+      silent,
+      weight: Math.max(0.5, line.end - line.start),
+    };
     this.lineScores.set(i, result);
     return result;
   }
@@ -203,7 +215,7 @@ export class ScoreSession {
       if (line.end < this.startedAt) return;
       const s = this.scoreLine(i);
       if (!s) return;
-      const w = Math.max(0.5, line.end - line.start);
+      const w = s.weight;
       lines.push(s);
       weight += w;
       sum += s.score * w;

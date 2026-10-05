@@ -10,6 +10,7 @@ import { SongFormPage } from './pages/SongFormPage';
 import { SyncPage } from './pages/SyncPage';
 import { SingPage } from './pages/SingPage';
 import { RoomPage } from './pages/RoomPage';
+import { BattlePage } from './pages/BattlePage';
 import { Toaster } from './components/Toaster';
 import { Icon } from './components/Icon';
 
@@ -53,6 +54,9 @@ export function App() {
     case 'room':
       page = <RoomPage />;
       break;
+    case 'battle':
+      page = <BattlePage key={route.songId ?? 'battle'} songId={route.songId} />;
+      break;
     default:
       page = (
         <div className="page">
@@ -82,6 +86,10 @@ export function App() {
             <Icon name="queue" size={18} />
             <span>ห้องคาราโอเกะ</span>
             {queued > 0 && <span className="nav-count">{queued}</span>}
+          </a>
+          <a className={route.name === 'battle' ? 'active' : ''} href={paths.battle()}>
+            <Icon name="trophy" size={18} />
+            <span>แข่งร้อง</span>
           </a>
           <a className={`nav-cta ${route.name === 'new' ? 'active' : ''}`} href={paths.newSong()}>
             <Icon name="plus" size={18} />

@@ -125,6 +125,8 @@ describe('router', () => {
     expect(parseRoute('#/room')).toEqual({ name: 'room' });
     expect(parseRoute('#/song/abc/sync')).toEqual({ name: 'sync', id: 'abc' });
     expect(parseRoute('#/nope')).toEqual({ name: 'notFound' });
+    expect(parseRoute('#/battle')).toEqual({ name: 'battle' });
+    expect(parseRoute('#/battle/abc')).toEqual({ name: 'battle', songId: 'abc' });
   });
 });
 

@@ -7,7 +7,9 @@ import { getPrefs, getSongPrefs, setPrefs, setSongPrefs } from '../lib/prefs';
 import { songsDb } from '../lib/db';
 import type { Song } from '../lib/types';
 import { useEngineState } from '../hooks/useEngine';
-import { useScoring } from '../hooks/useScoring';
+import { useScoring, type FinalScore } from '../hooks/useScoring';
+import type { LineScore } from '../lib/scoring';
+import type { LineDecor } from './KaraokeLyrics';
 import { toast } from '../lib/toast';
 import { KaraokeLyrics } from './KaraokeLyrics';
 import { Visualizer } from './Visualizer';
@@ -24,17 +26,34 @@ interface Props {
   onKeyShift?: (n: number) => void;
   /** ปุ่มเพิ่มเติมบนแถบควบคุม เช่น "ข้ามเพลง" ในห้องคาราโอเกะ */
   extraActions?: ReactNode;
+  /** โหมดแข่งร้อง: นับคะแนนเสมอ, ส่งคะแนนรายท่อน/ผลรวมให้หน้าแข่ง */
+  battle?: BattleProps;
+}
+
+export interface BattleProps {
+  /** ป้ายมุมจอ เช่น "รอบที่ 1/3 · มด" */
+  label: string;
+  /** สี/ชื่อของเจ้าของแต่ละท่อน */
+  decorate?: LineDecor;
+  /** ชื่อผู้เล่นของท่อน (ใช้กับข้อความบอกผลรายท่อน) */
+  ownerName?: (lineIndex: number) => string | null;
+  /** กระดานคะแนนสด */
+  scoreboard: { name: string; color: string; score: number | null }[];
+  onLine: (line: LineScore) => void;
+  onFinish: (result: FinalScore | null) => void;
 }
 
 const KEY_RANGE = 7;
 
-export function KaraokePlayer({ song, autoPlay, onEnded, onKeyShift, extraActions }: Props) {
+export function KaraokePlayer({ song, autoPlay, onEnded, onKeyShift, extraActions, battle }: Props) {
   const engine = getEngine();
   const { workletsOk } = useEngineState();
   const shellRef = useRef<HTMLDivElement>(null);
   const onEndedRef = useRef(onEnded);
   onEndedRef.current = onEnded;
-  const finishScoreRef = useRef<() => boolean>(() => false);
+  const finishScoreRef = useRef<() => FinalScore | null>(() => null);
+  const battleRef = useRef(battle);
+  battleRef.current = battle;
 
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
@@ -92,7 +111,9 @@ export function KaraokePlayer({ song, autoPlay, onEnded, onKeyShift, extraAction
     const onEnd = () => {
       setPlaying(false);
       // ถ้ามีผลคะแนน ให้แสดงก่อน แล้วค่อยไปเพลงถัดไปจากหน้าผลคะแนน
-      if (!finishScoreRef.current()) onEndedRef.current?.();
+      const result = finishScoreRef.current();
+      if (battleRef.current) battleRef.current.onFinish(result);
+      else if (!result) onEndedRef.current?.();
     };
     const onError = () => setLoadError('เล่นไฟล์เสียงนี้ไม่ได้ — ลองแปลงเป็น MP3 แล้วอัปโหลดใหม่');
     el.addEventListener('play', onPlay);
@@ -115,9 +136,14 @@ export function KaraokePlayer({ song, autoPlay, onEnded, onKeyShift, extraAction
 
   const timeline = useMemo(() => buildTimeline(song.lines, offset, duration), [song.lines, offset, duration]);
   const getTime = useCallback(() => engine.lyricTime, [engine]);
-  const scoringOn = prefs.scoring && workletsOk !== false && timeline.length > 0;
-  const score = useScoring(song, timeline, songPrefs.key, scoringOn);
+  const scoringOn = (battle ? true : prefs.scoring) && workletsOk !== false && timeline.length > 0;
+  const score = useScoring(song, timeline, songPrefs.key, scoringOn, { recordBest: !battle });
   finishScoreRef.current = score.finish;
+
+  // ส่งคะแนนรายท่อนให้หน้าแข่ง
+  useEffect(() => {
+    if (score.lastLine) battleRef.current?.onLine(score.lastLine.line);
+  }, [score.lastLine]);
 
   const toggleScoring = async () => {
     const next = !prefs.scoring;
@@ -210,7 +236,7 @@ export function KaraokePlayer({ song, autoPlay, onEnded, onKeyShift, extraAction
   return (
     <div className="player">
       <div ref={shellRef} className={`player-shell ${fullscreen ? 'is-full' : ''} ${theater ? 'theater' : ''}`}>
-        <div className={`stage ${scoringOn ? 'scoring' : ''}`} onDoubleClick={toggleFullscreen}>
+        <div className={`stage ${scoringOn ? 'scoring' : ''} ${battle ? 'battle' : ''}`} onDoubleClick={toggleFullscreen}>
           <Visualizer />
           {scoringOn && score.status === 'ready' && (
             <PitchLane
@@ -234,6 +260,9 @@ export function KaraokePlayer({ song, autoPlay, onEnded, onKeyShift, extraAction
               key={score.lastLine.at}
               className={`line-feedback ${score.lastLine.line.score >= 75 ? 'hi' : score.lastLine.line.score >= 45 ? 'mid' : 'lo'}`}
             >
+              {battle?.ownerName?.(score.lastLine.line.index) && (
+                <span className="feedback-who">{battle.ownerName(score.lastLine.line.index)}</span>
+              )}
               {score.lastLine.line.label} <strong>{score.lastLine.line.silent ? '' : score.lastLine.line.score}</strong>
             </div>
           )}
@@ -245,10 +274,29 @@ export function KaraokePlayer({ song, autoPlay, onEnded, onKeyShift, extraAction
             {songPrefs.key !== 0 && <span className="badge">คีย์ {formatShift(songPrefs.key)}</span>}
             {songPrefs.tempo !== 1 && <span className="badge">{Math.round(songPrefs.tempo * 100)}%</span>}
             {stereoOk && prefs.voice < 1 && <span className="badge">ตัดเสียงร้อง</span>}
-            {scoringOn && score.running !== null && <span className="badge score-badge">🎯 {score.running}</span>}
+            {!battle && scoringOn && score.running !== null && <span className="badge score-badge">🎯 {score.running}</span>}
+            {battle && <span className="badge battle-badge">⚔️ {battle.label}</span>}
           </div>
-          <KaraokeLyrics timeline={timeline} getTime={getTime} mode={prefs.lyricMode} title={song.title} artist={song.artist} />
-          {score.result && (
+          {battle && (
+            <div className="battle-board">
+              {battle.scoreboard.map((p) => (
+                <div key={p.name} className="battle-board-row" style={{ borderColor: p.color }}>
+                  <span className="dot" style={{ background: p.color }} />
+                  <span className="name">{p.name}</span>
+                  <strong>{p.score ?? '–'}</strong>
+                </div>
+              ))}
+            </div>
+          )}
+          <KaraokeLyrics
+            timeline={timeline}
+            getTime={getTime}
+            mode={prefs.lyricMode}
+            title={song.title}
+            artist={song.artist}
+            decorate={battle?.decorate}
+          />
+          {score.result && !battle && (
             <ScoreResult
               result={score.result}
               onRetry={retry}
@@ -280,7 +328,13 @@ export function KaraokePlayer({ song, autoPlay, onEnded, onKeyShift, extraAction
           <button type="button" className="icon-btn" onClick={() => engine.seek(0)} aria-label="เริ่มใหม่">
             <Icon name="restart" />
           </button>
-          <button type="button" className="play-btn" onClick={togglePlay} aria-label={playing ? 'หยุดชั่วคราว' : 'เล่น'} disabled={!!loadError}>
+          <button
+            type="button"
+            className="play-btn"
+            onClick={togglePlay}
+            aria-label={playing ? 'หยุดชั่วคราว' : 'เล่น'}
+            disabled={!!loadError}
+          >
             <Icon name={playing ? 'pause' : 'play'} size={26} />
           </button>
           <span className="time">{formatTime(current)}</span>
@@ -295,16 +349,18 @@ export function KaraokePlayer({ song, autoPlay, onEnded, onKeyShift, extraAction
             aria-label="ตำแหน่งเพลง"
           />
           <span className="time">{formatTime(duration)}</span>
-          <button
-            type="button"
-            className={`chip ${prefs.scoring ? 'on' : ''}`}
-            onClick={() => void toggleScoring()}
-            disabled={workletsOk === false || timeline.length === 0}
-            aria-pressed={prefs.scoring}
-            title={timeline.length === 0 ? 'ต้องซิงก์เนื้อเพลงก่อนจึงจะนับคะแนนได้' : 'นับคะแนนการร้อง (ใช้ไมค์)'}
-          >
-            🎯 <span>นับคะแนน</span>
-          </button>
+          {!battle && (
+            <button
+              type="button"
+              className={`chip ${prefs.scoring ? 'on' : ''}`}
+              onClick={() => void toggleScoring()}
+              disabled={workletsOk === false || timeline.length === 0}
+              aria-pressed={prefs.scoring}
+              title={timeline.length === 0 ? 'ต้องซิงก์เนื้อเพลงก่อนจึงจะนับคะแนนได้' : 'นับคะแนนการร้อง (ใช้ไมค์)'}
+            >
+              🎯 <span>นับคะแนน</span>
+            </button>
+          )}
           {extraActions}
           <button type="button" className="icon-btn" onClick={toggleFullscreen} aria-label="เต็มจอ">
             <Icon name={fullscreen || theater ? 'minimize' : 'maximize'} />
@@ -363,7 +419,11 @@ export function KaraokePlayer({ song, autoPlay, onEnded, onKeyShift, extraAction
             <Icon name="list" size={16} /> เนื้อเพลง
           </div>
           <div className="seg">
-            <button type="button" className={prefs.lyricMode === 'classic' ? 'on' : ''} onClick={() => updatePrefs({ lyricMode: 'classic' })}>
+            <button
+              type="button"
+              className={prefs.lyricMode === 'classic' ? 'on' : ''}
+              onClick={() => updatePrefs({ lyricMode: 'classic' })}
+            >
               2 บรรทัด
             </button>
             <button type="button" className={prefs.lyricMode === 'scroll' ? 'on' : ''} onClick={() => updatePrefs({ lyricMode: 'scroll' })}>

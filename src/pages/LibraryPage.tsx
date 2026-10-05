@@ -142,6 +142,9 @@ export function LibraryPage() {
           <a className="btn btn-ghost btn-lg" href={paths.room()}>
             <Icon name="youtube" /> ห้องคาราโอเกะ
           </a>
+          <a className="btn btn-ghost btn-lg" href={paths.battle()}>
+            <Icon name="trophy" /> แข่งร้อง
+          </a>
         </div>
       </section>
 

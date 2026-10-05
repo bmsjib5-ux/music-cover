@@ -25,7 +25,14 @@ export interface FinalScore extends ScoreResult {
 
 export type ScoringStatus = 'off' | 'preparing' | 'needs-mic' | 'ready';
 
-export function useScoring(song: Song, timeline: TimedLine[], keyShift: number, enabled: boolean) {
+export function useScoring(
+  song: Song,
+  timeline: TimedLine[],
+  keyShift: number,
+  enabled: boolean,
+  opts: { recordBest?: boolean } = {},
+) {
+  const recordBest = opts.recordBest ?? true;
   const engine = getEngine();
   const [status, setStatus] = useState<ScoringStatus>('off');
   const [progress, setProgress] = useState(0);
@@ -148,19 +155,20 @@ export function useScoring(song: Song, timeline: TimedLine[], keyShift: number, 
     };
   }, [active, engine, timeline, startSession]);
 
-  /** เรียกเมื่อเพลงจบ — คืนค่า true ถ้ามีผลคะแนนให้แสดง */
-  const finish = useCallback((): boolean => {
+  /** เรียกเมื่อเพลงจบ — คืนผลคะแนน (null = ไม่มีข้อมูลให้คะแนน) */
+  const finish = useCallback((): FinalScore | null => {
     const session = sessionRef.current;
-    if (!session) return false;
+    if (!session) return null;
     const r = session.finalize();
     sessionRef.current = null;
-    if (r.lines.length === 0) return false;
+    if (r.lines.length === 0) return null;
     const first = timeline[0]?.start ?? 0;
     const eligible = !session.seeked && session.startedAt <= first + 1;
-    const isBest = eligible && r.total > 0 ? recordScore(song.id, r.total) : false;
-    setResult({ ...r, eligible, isBest, best: getBestScore(song.id)?.best ?? null });
-    return true;
-  }, [timeline, song.id]);
+    const isBest = recordBest && eligible && r.total > 0 ? recordScore(song.id, r.total) : false;
+    const final: FinalScore = { ...r, eligible, isBest, best: getBestScore(song.id)?.best ?? null };
+    setResult(final);
+    return final;
+  }, [timeline, song.id, recordBest]);
 
   const dismissResult = useCallback(() => setResult(null), []);
 

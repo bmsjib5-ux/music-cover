@@ -7,12 +7,16 @@ export type Route =
   | { name: 'sync'; id: string }
   | { name: 'sing'; id: string }
   | { name: 'room' }
+  | { name: 'battle'; songId?: string }
   | { name: 'notFound' };
 
 export function parseRoute(hash: string): Route {
   const path = hash.replace(/^#/, '') || '/';
   if (path === '/' || path === '') return { name: 'library' };
   if (path === '/room') return { name: 'room' };
+  if (path === '/battle') return { name: 'battle' };
+  const b = /^\/battle\/([^/]+)$/.exec(path);
+  if (b) return { name: 'battle', songId: decodeURIComponent(b[1]) };
   if (path === '/song/new') return { name: 'new' };
   const m = /^\/song\/([^/]+)\/(edit|sync|sing)$/.exec(path);
   if (m) return { name: m[2] as 'edit' | 'sync' | 'sing', id: decodeURIComponent(m[1]) };
@@ -22,6 +26,7 @@ export function parseRoute(hash: string): Route {
 export const paths = {
   library: () => '#/',
   room: () => '#/room',
+  battle: (songId?: string) => (songId ? `#/battle/${encodeURIComponent(songId)}` : '#/battle'),
   newSong: () => '#/song/new',
   edit: (id: string) => `#/song/${encodeURIComponent(id)}/edit`,
   sync: (id: string) => `#/song/${encodeURIComponent(id)}/sync`,

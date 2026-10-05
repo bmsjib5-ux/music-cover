@@ -23,11 +23,11 @@ describe('searchYouTube', () => {
   });
 
   it('decodes results and caches repeated queries', async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify(okBody), { status: 200 }));
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) => new Response(JSON.stringify(okBody), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
     const first = await searchYouTube('คิดถึง', 'KEY', true);
     expect(first[0]).toMatchObject({ videoId: 'abcdefghijk', title: 'คิดถึง & คาราโอเกะ', channel: 'ช่อง "เพลง"' });
-    const url = new URL(fetchMock.mock.calls[0][0] as unknown as string);
+    const url = new URL(String(fetchMock.mock.calls[0][0]));
     expect(url.searchParams.get('q')).toBe('คิดถึง คาราโอเกะ');
     expect(url.searchParams.get('key')).toBe('KEY');
     await searchYouTube('คิดถึง', 'KEY', true);

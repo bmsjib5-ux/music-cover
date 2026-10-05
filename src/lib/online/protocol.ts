@@ -33,8 +33,11 @@ export interface SharedSong {
   lines: LyricLine[];
   offset: number;
   melody: Melody | null;
+  /** ว่าง = เพลงจาก YouTube (ไม่มีไฟล์เสียง) */
   audioUrl: string;
   audioType: string;
+  /** เพลงจากวิดีโอ YouTube — ทุกเครื่องเปิดวิดีโอเอง ไม่ต้องอัปโหลด/ดาวน์โหลดไฟล์ */
+  youtube?: { videoId: string; channel: string };
 }
 
 /** คะแนนรายท่อนแบบย่อสำหรับส่งผ่านเครือข่าย */

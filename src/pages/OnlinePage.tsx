@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { onSongsChanged, songsDb } from '../lib/db';
 import { paths } from '../lib/router';
 import { syncedCount } from '../lib/lyrics';
@@ -21,6 +21,9 @@ import {
 import { useOnlineRoom, type OnlineRoom, type TransportKind } from '../hooks/useOnlineRoom';
 import type { Song } from '../lib/types';
 import { KaraokePlayer, type BattleProps } from '../components/KaraokePlayer';
+import { YouTubeKaraoke } from '../components/YouTubeKaraoke';
+import { YtSongPicker } from '../components/YtSongPicker';
+import { ytSongToSong, type YtSong } from '../lib/ytSongs';
 import { BattleResult } from '../components/BattleResult';
 import { Icon } from '../components/Icon';
 
@@ -143,7 +146,7 @@ function Entry({ room, kind, initialCode }: { room: OnlineRoom; kind: TransportK
         <h2>
           <Icon name="plus" /> สร้างห้องใหม่
         </h2>
-        <p className="muted">คุณจะเป็นโฮสต์: เลือกเพลงจากคลังของคุณ แล้วส่งลิงก์ห้องให้เพื่อน</p>
+        <p className="muted">คุณจะเป็นโฮสต์: เลือกเพลงจากคลังของคุณหรือจาก YouTube แล้วส่งลิงก์ห้องให้เพื่อน</p>
         <button type="button" className="btn btn-primary btn-lg" disabled={joining} onClick={() => checkName() && void room.createRoom(name.trim(), kind)}>
           <Icon name="trophy" /> {joining ? 'กำลังเชื่อมต่อ…' : 'สร้างห้องแข่ง'}
         </button>
@@ -284,11 +287,12 @@ function SongBox({ room }: { room: OnlineRoom }) {
   if (!room.song) return null;
   return (
     <div className="now-song">
-      <Icon name="music" size={26} />
+      <Icon name={room.song.youtube ? 'youtube' : 'music'} size={26} />
       <div>
         <strong>{room.song.title}</strong>
         <small className="muted">
-          {room.song.artist || 'ไม่ระบุศิลปิน'} · {formatTime(room.song.duration)} · {ONLINE_MODES.find((m) => m.id === room.mode)?.label}
+          {room.song.youtube ? 'YouTube' : room.song.artist || 'ไม่ระบุศิลปิน'}
+          {room.song.duration > 0 && ` · ${formatTime(room.song.duration)}`} · {ONLINE_MODES.find((m) => m.id === room.mode)?.label}
         </small>
       </div>
     </div>
@@ -298,6 +302,9 @@ function SongBox({ room }: { room: OnlineRoom }) {
 function HostPanel({ room, notReady }: { room: OnlineRoom; notReady: string[] }) {
   const [songs, setSongs] = useState<Song[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [source, setSource] = useState<'library' | 'youtube'>('library');
+  const [ytSong, setYtSong] = useState<YtSong | null>(null);
+  const ytAsSong = useMemo(() => (ytSong ? ytSongToSong(ytSong) : null), [ytSong]);
   useEffect(() => {
     const load = () =>
       void songsDb.all().then((all) => {
@@ -308,15 +315,30 @@ function HostPanel({ room, notReady }: { room: OnlineRoom; notReady: string[] })
     load();
     return onSongsChanged(load);
   }, []);
-  const chosen = songs?.find((s) => s.id === selected) ?? null;
-  const sharedIsChosen = !!room.song && !!chosen && room.song.title === chosen.title && room.song.duration === chosen.duration;
+  const chosen = source === 'youtube' ? ytAsSong : (songs?.find((s) => s.id === selected) ?? null);
+  const sharedIsChosen =
+    !!room.song &&
+    !!chosen &&
+    (chosen.youtube
+      ? room.song.youtube?.videoId === chosen.youtube.videoId && room.song.offset === chosen.offset
+      : room.song.title === chosen.title && room.song.duration === chosen.duration);
 
   return (
     <>
       <h2>
         <Icon name="music" /> เลือกเพลงแข่ง
       </h2>
-      {songs === null ? (
+      <div className="tabs">
+        <button type="button" className={source === 'library' ? 'on' : ''} onClick={() => setSource('library')}>
+          <Icon name="music" size={18} /> คลังเพลง
+        </button>
+        <button type="button" className={source === 'youtube' ? 'on' : ''} onClick={() => setSource('youtube')}>
+          <Icon name="youtube" size={18} /> YouTube
+        </button>
+      </div>
+      {source === 'youtube' ? (
+        <YtSongPicker value={ytSong} onChange={setYtSong} />
+      ) : songs === null ? (
         <p className="muted">กำลังโหลด…</p>
       ) : songs.length === 0 ? (
         <p className="muted">
@@ -367,7 +389,7 @@ function HostPanel({ room, notReady }: { room: OnlineRoom; notReady: string[] })
           className="btn btn-primary btn-lg battle-start"
           disabled={!room.song || !room.localSong || notReady.length > 0}
           onClick={() => {
-            setPrefs({ voice: 0 });
+            if (!room.song?.youtube) setPrefs({ voice: 0 });
             room.startRound();
           }}
         >
@@ -409,15 +431,21 @@ function GuestPanel({ room, ready }: { room: OnlineRoom; ready: boolean }) {
                 className="btn btn-primary btn-lg battle-start"
                 disabled={ready}
                 onClick={() => {
-                  setPrefs({ voice: 0 });
+                  if (!room.song?.youtube) setPrefs({ voice: 0 });
                   void room.ready();
                 }}
               >
                 {ready ? '✓ พร้อมแล้ว — รอโฮสต์เริ่ม' : '🎤 พร้อมแข่ง!'}
               </button>
-              <button type="button" className="btn btn-ghost btn-sm" style={{ marginTop: 8 }} onClick={() => void saveToLibrary()}>
-                <Icon name="download" size={16} /> บันทึกเพลงนี้ลงคลังของฉัน
-              </button>
+              {room.localSong.youtube ? (
+                <p className="muted small" style={{ marginTop: 8 }}>
+                  เพลงจาก YouTube ตัดเสียงร้องไม่ได้ — ใส่หูฟังเพื่อไม่ให้ไมค์ได้ยินเสียงในวิดีโอ
+                </p>
+              ) : (
+                <button type="button" className="btn btn-ghost btn-sm" style={{ marginTop: 8 }} onClick={() => void saveToLibrary()}>
+                  <Icon name="download" size={16} /> บันทึกเพลงนี้ลงคลังของฉัน
+                </button>
+              )}
             </>
           )}
         </>
@@ -489,7 +517,12 @@ function Playing({ room }: { room: OnlineRoom }) {
               </div>
             </div>
           )}
-          {room.localSong && <KaraokePlayer key={`online-${room.round}`} song={room.localSong} startAt={room.startAt} battle={battle} />}
+          {room.localSong &&
+            (room.localSong.youtube ? (
+              <YouTubeKaraoke key={`online-${room.round}`} song={room.localSong} autoPlay={false} startAt={room.startAt} battle={battle} />
+            ) : (
+              <KaraokePlayer key={`online-${room.round}`} song={room.localSong} startAt={room.startAt} battle={battle} />
+            ))}
         </>
       )}
       <div className="row" style={{ justifyContent: 'center' }}>

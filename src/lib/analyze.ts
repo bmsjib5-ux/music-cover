@@ -106,8 +106,12 @@ export function detectKey(sampleRate: number, l: Float32Array, r: Float32Array):
       chroma[pc] += Math.sqrt(re[k] * re[k] + im[k] * im[k]);
     }
   }
-  if (chroma.every((v) => v === 0)) return null;
+  return keyFromChroma(chroma);
+}
 
+/** หาคีย์ที่เข้ากับน้ำหนักของโน้ตทั้ง 12 ตัวที่สุด (Krumhansl–Kessler) */
+export function keyFromChroma(chroma: number[]): MusicKey | null {
+  if (chroma.every((v) => v === 0)) return null;
   let best: MusicKey = { root: 0, mode: 'major' };
   let bestScore = -Infinity;
   for (let root = 0; root < 12; root++) {

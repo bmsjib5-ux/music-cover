@@ -113,6 +113,39 @@ describe('ScoreSession (scale mode)', () => {
   });
 });
 
+describe('ScoreSession (unknown key, e.g. YouTube)', () => {
+  const scale = [60, 62, 64, 65, 67, 69, 71];
+  const inScale = (t: number) => (t >= 1 && t <= 6 ? scale[Math.floor(t * 4) % scale.length] : null);
+  const chromatic = (t: number) => (t >= 1 && t <= 6 ? 60 + (Math.floor(t * 4) % 12) : null);
+  const make = (inferKey: boolean) => new ScoreSession(timeline, null, { keyShift: 0, songKey: null, startTime: 0, inferKey });
+
+  it('infers the key from the singing and rewards staying in it', () => {
+    const good = make(true);
+    sing(good, inScale);
+    const a = good.finalize();
+    expect(good.inferredKey).not.toBeNull();
+    expect(a.total).toBeGreaterThanOrEqual(90);
+
+    const wander = make(true);
+    sing(wander, chromatic);
+    expect(wander.finalize().total).toBeLessThan(a.total - 10);
+  });
+
+  it('without inference any semitone counts as in tune', () => {
+    const s = make(false);
+    sing(s, chromatic);
+    expect(s.inferredKey).toBeNull();
+    expect(s.finalize().total).toBeGreaterThanOrEqual(90);
+  });
+
+  it('ignores inference when the song key is known', () => {
+    const s = new ScoreSession(timeline, null, { keyShift: 0, songKey: { root: 0, mode: 'major' }, startTime: 0, inferKey: true });
+    sing(s, inScale);
+    s.finalize();
+    expect(s.inferredKey).toBeNull();
+  });
+});
+
 describe('grades', () => {
   it('maps totals to grades', () => {
     expect(gradeFor(97).grade).toBe('S');

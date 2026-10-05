@@ -34,6 +34,8 @@ export interface Song {
   /** วินาที — บวกเข้ากับเวลาเนื้อเพลงตอนเล่น */
   offset: number;
   demo?: boolean;
+  /** เพลงจากวิดีโอ YouTube (ไม่มีไฟล์เสียง — ใช้แข่งร้อง ให้คะแนนจากจังหวะ + ความตรงคีย์) */
+  youtube?: { videoId: string; channel: string };
 }
 
 export interface Cover {

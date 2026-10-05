@@ -2705,3 +2705,90 @@ details li {
     transition: none !important;
   }
 }
+
+/* ---------- คาราโอเกะจาก YouTube (แข่งร้อง) ---------- */
+.yt-karaoke .yt-stage {
+  max-height: 38vh;
+  margin: 0 auto;
+  border-radius: 0;
+}
+.stage.yt-lyrics {
+  aspect-ratio: 16 / 5;
+  min-height: 190px;
+  max-height: 36vh;
+}
+.stage.yt-lyrics .lyrics-classic {
+  padding-bottom: 4cqw;
+}
+.yt-progress {
+  flex: 1;
+  height: 6px;
+  min-width: 60px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+.yt-progress span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-3));
+}
+.yt-tap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.yt-sync {
+  margin-top: 12px;
+}
+.yt-sync-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 18px;
+  margin-bottom: 6px;
+}
+.yt-thumb {
+  width: 64px;
+  height: 36px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex: none;
+  background: rgba(255, 255, 255, 0.06);
+}
+.yt-song-picker .battle-song,
+.yt-selected .battle-song {
+  cursor: default;
+}
+.yt-song-picker .battle-song .btn {
+  margin-left: auto;
+}
+.sub-head {
+  font-size: 15px;
+  margin: 12px 0 8px;
+  color: var(--muted);
+}
+.yt-lyrics-finder .now-song .btn {
+  margin-left: auto;
+  flex: none;
+}
+.yt-lyrics-finder .lrclib-results {
+  margin: 10px 0;
+}
+.yt-lyrics-finder textarea {
+  width: 100%;
+  margin: 8px 0;
+}
+.yt-selected .row {
+  margin-bottom: 8px;
+}
+@media (max-width: 720px) {
+  .stage.yt-lyrics {
+    aspect-ratio: 4 / 3;
+    max-height: none;
+  }
+  .yt-karaoke .transport .seg {
+    display: none;
+  }
+}

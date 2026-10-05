@@ -25,15 +25,41 @@ export interface FinalScore extends ScoreResult {
 
 export type ScoringStatus = 'off' | 'preparing' | 'needs-mic' | 'ready';
 
+/** แหล่งเวลาของเพลงที่ใช้ให้คะแนน (ค่าเริ่มต้น = เครื่องเล่นเสียงของแอป, หรือวิดีโอ YouTube) */
+export interface ScoreClock {
+  /** เวลาในเพลงสำหรับเทียบกับเนื้อเพลง (วินาที) */
+  time(): number;
+  paused(): boolean;
+  on(event: 'play' | 'seeked', fn: () => void): () => void;
+}
+
+let engineClock: ScoreClock | null = null;
+
+function getEngineClock(): ScoreClock {
+  if (!engineClock) {
+    const engine = getEngine();
+    engineClock = {
+      time: () => engine.lyricTime,
+      paused: () => engine.el.paused,
+      on: (event, fn) => {
+        engine.el.addEventListener(event, fn);
+        return () => engine.el.removeEventListener(event, fn);
+      },
+    };
+  }
+  return engineClock;
+}
+
 export function useScoring(
   song: Song,
   timeline: TimedLine[],
   keyShift: number,
   enabled: boolean,
-  opts: { recordBest?: boolean } = {},
+  opts: { recordBest?: boolean; clock?: ScoreClock } = {},
 ) {
   const recordBest = opts.recordBest ?? true;
   const engine = getEngine();
+  const clock = opts.clock ?? getEngineClock();
   const [status, setStatus] = useState<ScoringStatus>('off');
   const [progress, setProgress] = useState(0);
   const [melody, setMelody] = useState<Melody | null>(null);
@@ -76,15 +102,21 @@ export function useScoring(
   }, [enabled, song.id]);
 
   const startSession = useCallback((from?: number) => {
-    const t = from ?? engine.lyricTime;
-    sessionRef.current = new ScoreSession(timeline, melody, { keyShift: keyShiftRef.current, songKey: song.key, startTime: t });
+    const t = from ?? clock.time();
+    sessionRef.current = new ScoreSession(timeline, melody, {
+      keyShift: keyShiftRef.current,
+      songKey: song.key,
+      startTime: t,
+      // วิดีโอ YouTube ไม่รู้คีย์ → เดาคีย์จากเสียงที่ร้อง
+      inferKey: !!song.youtube,
+    });
     trailRef.current = [];
     nextLineRef.current = timeline.findIndex((l) => l.end > t);
     if (nextLineRef.current < 0) nextLineRef.current = timeline.length;
     setLastLine(null);
     setRunning(null);
     setResult(null);
-  }, [engine, timeline, melody, song.key]);
+  }, [clock, timeline, melody, song.key, song.youtube]);
 
   const active = enabled && status === 'ready' && micOn;
 
@@ -106,8 +138,8 @@ export function useScoring(
     if (!active) return;
     return engine.onPitch((p) => {
       const session = sessionRef.current;
-      if (!session || engine.el.paused) return;
-      const t = engine.lyricTime - MIC_DELAY;
+      if (!session || clock.paused()) return;
+      const t = clock.time() - MIC_DELAY;
       session.add(t, p.voiced ? p.midi : null);
       const trail = trailRef.current;
       trail.push({ t, c: p.voiced ? p.midi * 100 : 0 });
@@ -124,16 +156,15 @@ export function useScoring(
         setRunning(session.runningScore());
       }
     });
-  }, [active, engine, timeline]);
+  }, [active, engine, clock, timeline]);
 
   // การกระโดดตำแหน่งเพลง: ย้อนไปต้นเพลง = เริ่มรอบใหม่, กระโดดที่อื่น = ไม่นับสถิติ
   // หลังเพลงจบ (ไม่มีรอบที่ค้างอยู่) การกดเล่น/ย้อนเพลงจะเริ่มรอบใหม่ให้เอง
   useEffect(() => {
     if (!active) return;
-    const el = engine.el;
     const onSeeked = () => {
       const session = sessionRef.current;
-      const t = engine.lyricTime;
+      const t = clock.time();
       const first = timeline[0]?.start ?? 0;
       if (!session || t < first - 0.3) {
         startSession(t);
@@ -147,13 +178,13 @@ export function useScoring(
     const onPlay = () => {
       if (!sessionRef.current) startSession();
     };
-    el.addEventListener('seeked', onSeeked);
-    el.addEventListener('play', onPlay);
+    const offSeeked = clock.on('seeked', onSeeked);
+    const offPlay = clock.on('play', onPlay);
     return () => {
-      el.removeEventListener('seeked', onSeeked);
-      el.removeEventListener('play', onPlay);
+      offSeeked();
+      offPlay();
     };
-  }, [active, engine, timeline, startSession]);
+  }, [active, clock, timeline, startSession]);
 
   /** เรียกเมื่อเพลงจบ — คืนผลคะแนน (null = ไม่มีข้อมูลให้คะแนน) */
   const finish = useCallback((): FinalScore | null => {

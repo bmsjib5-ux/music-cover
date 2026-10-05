@@ -1,12 +1,15 @@
 import type { TimedLine } from './lyrics';
 import { melodyAt, melodyCoverage, pitchClassDistance, type Melody } from './melody';
 import { nearestAllowed, scaleMask } from '../audio/dsp/autotune';
+import { keyFromChroma } from './analyze';
 import type { MusicKey } from './types';
 
 /** เส้นทำนองที่ถอดได้ครอบคลุมช่วงเนื้อเพลงน้อยกว่านี้ → ให้คะแนนจากความตรงคีย์แทน */
 export const MIN_MELODY_COVERAGE = 0.3;
 /** ยอมให้ร้องเร็ว/ช้ากว่าทำนองได้เท่านี้ (วินาที) */
 const TIME_SLACK = 0.18;
+/** ต้องได้ยินเสียงร้องอย่างน้อยเท่านี้เฟรมก่อนจะเดาคีย์จากเสียงที่ร้อง */
+const MIN_KEY_FRAMES = 40;
 
 export interface LineScore {
   index: number;
@@ -72,7 +75,10 @@ export class ScoreSession {
   private frames: Frame[] = [];
   private readonly lineScores = new Map<number, LineScore>();
   private keyShift: number;
-  private readonly allowed: boolean[];
+  private allowed: boolean[];
+  private readonly inferKey: boolean;
+  /** คีย์ที่เดาจากโน้ตที่ผู้ร้องร้องมา (ใช้กับเพลงที่ไม่รู้คีย์ เช่น วิดีโอ YouTube) */
+  inferredKey: MusicKey | null = null;
   /** ผู้ใช้กระโดดข้ามช่วงเพลง → ไม่นับเป็นสถิติ */
   seeked = false;
   readonly startedAt: number;
@@ -80,13 +86,46 @@ export class ScoreSession {
   constructor(
     private readonly timeline: TimedLine[],
     private readonly melody: Melody | null,
-    opts: { keyShift: number; songKey: MusicKey | null; startTime: number },
+    opts: { keyShift: number; songKey: MusicKey | null; startTime: number; inferKey?: boolean },
   ) {
     this.mode = melody && melodyCoverage(melody, timeline) >= MIN_MELODY_COVERAGE ? 'melody' : 'scale';
     this.keyShift = opts.keyShift;
     const key = opts.songKey;
     this.allowed = scaleMask(key ? (((key.root + opts.keyShift) % 12) + 12) % 12 : null, key?.mode ?? 'major');
     this.startedAt = opts.startTime;
+    this.inferKey = !key && !!opts.inferKey;
+  }
+
+  /**
+   * เดาคีย์จากโน้ตทั้งหมดที่ร้องมาแล้ว: เลือกบันไดเสียง (7 โน้ต) ที่ครอบคลุมเสียงที่ร้องมากที่สุด
+   * ถ้าเท่ากันให้เชื่อโปรไฟล์คีย์ (Krumhansl) — ร้องหลุดคีย์ไปมาจะเสียคะแนน
+   */
+  private updateInferredKey(): void {
+    const chroma = new Array<number>(12).fill(0);
+    let voiced = 0;
+    for (const f of this.frames) {
+      if (!f.c) continue;
+      chroma[((Math.round(f.c / 100) % 12) + 12) % 12]++;
+      voiced++;
+    }
+    if (voiced < MIN_KEY_FRAMES) return;
+    const coverage = (root: number) => scaleMask(root, 'major').reduce((sum, on, pc) => sum + (on ? chroma[pc] : 0), 0);
+    let bestCover = -1;
+    const roots: number[] = [];
+    for (let root = 0; root < 12; root++) {
+      const c = coverage(root);
+      if (c > bestCover) {
+        bestCover = c;
+        roots.length = 0;
+      }
+      if (c === bestCover) roots.push(root);
+    }
+    const profile = keyFromChroma(chroma);
+    // คีย์ไมเนอร์ใช้โน้ตชุดเดียวกับเมเจอร์สัมพันธ์ (ไมเนอร์ +3 ครึ่งเสียง)
+    const profileMajorRoot = profile ? (profile.mode === 'major' ? profile.root : (profile.root + 3) % 12) : -1;
+    const key: MusicKey = profile && roots.includes(profileMajorRoot) ? profile : { root: roots[0], mode: 'major' };
+    this.inferredKey = key;
+    this.allowed = scaleMask(key.root, key.mode);
   }
 
   setKeyShift(n: number): void {
@@ -142,6 +181,7 @@ export class ScoreSession {
         pitchSum += best <= 60 ? 1 : best <= 180 ? 1 - (best - 60) / 120 : 0;
       }
     } else {
+      if (this.inferKey) this.updateInferredKey();
       expected = inLine.length;
       covered = inLine.filter((f) => f.c).length;
       for (const f of frames) {

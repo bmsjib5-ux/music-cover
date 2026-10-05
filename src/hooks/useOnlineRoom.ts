@@ -36,7 +36,7 @@ function fromNet(l: NetLine): LineScore {
   return { ...l, pitch: null, timing: 0, stability: null };
 }
 
-function sharedToSong(s: SharedSong, audio: Blob): Song {
+function sharedToSong(s: SharedSong, audio: Blob | null): Song {
   const now = Date.now();
   return {
     id: `online-${s.shareId}`,
@@ -53,6 +53,7 @@ function sharedToSong(s: SharedSong, audio: Blob): Song {
     melody: s.melody === undefined ? undefined : s.melody,
     lines: s.lines,
     offset: s.offset,
+    youtube: s.youtube,
   };
 }
 
@@ -100,8 +101,14 @@ export function useOnlineRoom() {
   const loadShared = useCallback(async (s: SharedSong) => {
     const t = transportRef.current;
     if (!t) return;
-    setDownload(0);
     setError(null);
+    if (s.youtube) {
+      // เพลง YouTube: ไม่มีไฟล์ให้โหลด แต่ละเครื่องเปิดวิดีโอเอง
+      setLocalSong(sharedToSong(s, null));
+      setMyStatus('loaded', { progress: 100 });
+      return;
+    }
+    setDownload(0);
     setMyStatus('loading', { progress: 0 });
     let lastPct = 0;
     try {
@@ -250,10 +257,36 @@ export function useOnlineRoom() {
   /** โฮสต์: แชร์เพลงจากคลังเข้าห้อง (อัปไฟล์เสียง + ส่งเนื้อ/ทำนอง) */
   const shareSong = async (s: Song, newMode: OnlineMode) => {
     const t = transportRef.current;
-    if (!t || !code || !s.audio) return;
+    if (!t || !code || (!s.audio && !s.youtube)) return;
     setError(null);
     try {
       if (!(await getEngine().enableMic())) throw new Error('ต้องอนุญาตให้ใช้ไมโครโฟนก่อน');
+      if (s.youtube) {
+        if (uploadedPath.current) void t.deleteAudio(uploadedPath.current);
+        uploadedPath.current = null;
+        const shared: SharedSong = {
+          shareId: newId(),
+          title: s.title,
+          artist: s.artist,
+          duration: s.duration,
+          stereo: null,
+          key: null,
+          lines: s.lines,
+          offset: s.offset,
+          melody: null,
+          audioUrl: '',
+          audioType: '',
+          youtube: s.youtube,
+        };
+        setSong(shared);
+        st.current.song = shared;
+        setLocalSong(s);
+        setModeState(newMode);
+        t.send({ type: 'song', song: shared, mode: newMode });
+        t.updateMe({ status: 'ready' });
+        return;
+      }
+      if (!s.audio) return;
       setBusy('กำลังเตรียมทำนองเพลง…');
       const melody = s.melody !== undefined ? s.melody : await ensureMelody(s);
       setBusy('กำลังอัปโหลดเพลงเข้าห้อง…');

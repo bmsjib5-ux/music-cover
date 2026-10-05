@@ -32,11 +32,15 @@ import { useEngineState } from '../hooks/useEngine';
 import type { FinalScore } from '../hooks/useScoring';
 import type { Song } from '../lib/types';
 import { KaraokePlayer, type BattleProps } from '../components/KaraokePlayer';
+import { YouTubeKaraoke } from '../components/YouTubeKaraoke';
+import { YtSongPicker } from '../components/YtSongPicker';
+import { ytSongToSong, type YtSong } from '../lib/ytSongs';
 import { BattleResult } from '../components/BattleResult';
 import { BattleTabs } from './OnlinePage';
 import { Icon } from '../components/Icon';
 
 type Phase = 'setup' | 'handoff' | 'playing' | 'result';
+type Source = 'library' | 'youtube';
 
 const SETUP_KEY = 'rongloei.battleSetup.v1';
 
@@ -44,24 +48,25 @@ function defaultPlayers(n: number): Player[] {
   return Array.from({ length: n }, (_, i) => ({ id: newId(), name: `ผู้เล่น ${i + 1}`, color: PLAYER_COLORS[i] }));
 }
 
-function loadSetup(): { players: Player[]; mode: BattleMode } {
+function loadSetup(): { players: Player[]; mode: BattleMode; source: Source } {
   try {
-    const raw = JSON.parse(localStorage.getItem(SETUP_KEY) ?? 'null') as { names: string[]; mode: BattleMode } | null;
+    const raw = JSON.parse(localStorage.getItem(SETUP_KEY) ?? 'null') as { names: string[]; mode: BattleMode; source?: Source } | null;
     if (raw && Array.isArray(raw.names) && raw.names.length >= MIN_PLAYERS) {
       return {
         players: raw.names.slice(0, MAX_PLAYERS).map((name, i) => ({ id: newId(), name, color: PLAYER_COLORS[i] })),
         mode: BATTLE_MODES.some((m) => m.id === raw.mode) ? raw.mode : 'lines1',
+        source: raw.source === 'youtube' ? 'youtube' : 'library',
       };
     }
   } catch {
     /* ignore */
   }
-  return { players: defaultPlayers(2), mode: 'lines1' };
+  return { players: defaultPlayers(2), mode: 'lines1', source: 'library' };
 }
 
-function saveSetup(players: Player[], mode: BattleMode): void {
+function saveSetup(players: Player[], mode: BattleMode, source: Source): void {
   try {
-    localStorage.setItem(SETUP_KEY, JSON.stringify({ names: players.map((p) => p.name), mode }));
+    localStorage.setItem(SETUP_KEY, JSON.stringify({ names: players.map((p) => p.name), mode, source }));
   } catch {
     /* ignore */
   }
@@ -85,6 +90,9 @@ export function BattlePage({ songId }: { songId?: string }) {
   /** เพลงที่ใช้แข่ง (เตรียมเส้นทำนองไว้แล้ว) */
   const [activeSong, setActiveSong] = useState<Song | null>(null);
   const [preparing, setPreparing] = useState<number | null>(null);
+  const [source, setSource] = useState<Source>(songId ? 'library' : initial.source);
+  const [ytSong, setYtSong] = useState<YtSong | null>(null);
+  const ytAsSong = useMemo(() => (ytSong ? ytSongToSong(ytSong) : null), [ytSong]);
 
   useEffect(() => {
     const load = () =>
@@ -97,14 +105,14 @@ export function BattlePage({ songId }: { songId?: string }) {
     return onSongsChanged(load);
   }, []);
 
-  useEffect(() => saveSetup(players, mode), [players, mode]);
+  useEffect(() => saveSetup(players, mode, source), [players, mode, source]);
 
   // เปลี่ยนช่วง (ตั้งค่า → ส่งไมค์ → ร้อง → ผล) ให้เลื่อนขึ้นบนสุดเสมอ (สำคัญบนมือถือ)
   useEffect(() => {
     window.scrollTo({ top: 0 });
   }, [phase, turn]);
 
-  const selectedSong = songs?.find((s) => s.id === selected) ?? null;
+  const selectedSong = source === 'youtube' ? ytAsSong : (songs?.find((s) => s.id === selected) ?? null);
   const song = phase === 'setup' ? selectedSong : (activeSong ?? selectedSong);
   const n = players.length;
 
@@ -129,8 +137,8 @@ export function BattlePage({ songId }: { songId?: string }) {
       }
     }
     setActiveSong(prepared);
-    // ตัดเสียงร้องต้นฉบับ เพื่อไม่ให้ไมค์ได้ยินเสียงนักร้องจริง
-    setPrefs({ voice: 0 });
+    // ตัดเสียงร้องต้นฉบับ เพื่อไม่ให้ไมค์ได้ยินเสียงนักร้องจริง (วิดีโอ YouTube ตัดไม่ได้)
+    if (!prepared.youtube) setPrefs({ voice: 0 });
     setTallies(players.map(emptyTally));
     setStandings(null);
     setTurn(0);
@@ -216,6 +224,11 @@ export function BattlePage({ songId }: { songId?: string }) {
           songs={songs}
           selected={selected}
           onSelect={setSelected}
+          source={source}
+          setSource={setSource}
+          ytSong={ytSong}
+          setYtSong={setYtSong}
+          canStart={!!selectedSong}
           players={players}
           setPlayers={setPlayers}
           mode={mode}
@@ -243,7 +256,12 @@ export function BattlePage({ songId }: { songId?: string }) {
         </div>
       )}
 
-      {phase === 'playing' && song && battle && <KaraokePlayer key={`${round}-${turn}`} song={song} autoPlay battle={battle} />}
+      {phase === 'playing' && song && battle &&
+        (song.youtube ? (
+          <YouTubeKaraoke key={`${round}-${turn}`} song={song} autoPlay battle={battle} />
+        ) : (
+          <KaraokePlayer key={`${round}-${turn}`} song={song} autoPlay battle={battle} />
+        ))}
 
       {phase === 'result' && standings && song && (
         <BattleResult standings={standings} title={song.title}>
@@ -253,9 +271,11 @@ export function BattlePage({ songId }: { songId?: string }) {
           <button type="button" className="btn btn-ghost" onClick={() => setPhase('setup')}>
             <Icon name="settings" size={18} /> เปลี่ยนเพลง/ผู้เล่น
           </button>
-          <a className="btn btn-ghost" href={paths.sing(song.id)}>
-            <Icon name="mic" size={18} /> ฝึกร้องเพลงนี้
-          </a>
+          {!song.youtube && (
+            <a className="btn btn-ghost" href={paths.sing(song.id)}>
+              <Icon name="mic" size={18} /> ฝึกร้องเพลงนี้
+            </a>
+          )}
         </BattleResult>
       )}
 
@@ -304,6 +324,11 @@ function Setup({
   songs,
   selected,
   onSelect,
+  source,
+  setSource,
+  ytSong,
+  setYtSong,
+  canStart,
   players,
   setPlayers,
   mode,
@@ -315,6 +340,11 @@ function Setup({
   songs: Song[] | null;
   selected: string | null;
   onSelect: (id: string) => void;
+  source: Source;
+  setSource: (s: Source) => void;
+  ytSong: YtSong | null;
+  setYtSong: (s: YtSong | null) => void;
+  canStart: boolean;
   players: Player[];
   setPlayers: (p: Player[]) => void;
   mode: BattleMode;
@@ -330,7 +360,17 @@ function Setup({
         <h2>
           <Icon name="music" /> 1. เลือกเพลง
         </h2>
-        {songs === null ? (
+        <div className="tabs">
+          <button type="button" className={source === 'library' ? 'on' : ''} onClick={() => setSource('library')}>
+            <Icon name="music" size={18} /> คลังเพลง
+          </button>
+          <button type="button" className={source === 'youtube' ? 'on' : ''} onClick={() => setSource('youtube')}>
+            <Icon name="youtube" size={18} /> YouTube
+          </button>
+        </div>
+        {source === 'youtube' ? (
+          <YtSongPicker value={ytSong} onChange={setYtSong} />
+        ) : songs === null ? (
           <p className="muted">กำลังโหลด…</p>
         ) : songs.length === 0 ? (
           <p className="muted">
@@ -402,12 +442,16 @@ function Setup({
 
         <ul className="battle-tips muted small">
           <li>ใช้ไมค์/อุปกรณ์เดียว ส่งต่อกันตามสีของเนื้อเพลง — ท่อนถัดไปมีป้ายชื่อบอกว่าตาใคร</li>
-          <li>ระบบตัดเสียงร้องต้นฉบับให้อัตโนมัติ · ใส่หูฟังหรือเปิดลำโพงเบาๆ จะได้คะแนนแม่นที่สุด</li>
+          {source === 'youtube' ? (
+            <li>เพลง YouTube ตัดเสียงร้องไม่ได้ — เลือกวิดีโอคาราโอเกะ และใส่หูฟัง/เปิดเบาๆ ไม่ให้ไมค์ได้ยินเสียงนักร้องในวิดีโอ</li>
+          ) : (
+            <li>ระบบตัดเสียงร้องต้นฉบับให้อัตโนมัติ · ใส่หูฟังหรือเปิดลำโพงเบาๆ จะได้คะแนนแม่นที่สุด</li>
+          )}
           <li>ร้องสูง/ต่ำกว่าหนึ่งคู่แปดก็นับ — ผู้ชายกับผู้หญิงแข่งกันได้ยุติธรรม</li>
         </ul>
 
         {unsupported && <p className="alert error">เบราว์เซอร์นี้ไม่รองรับการให้คะแนน (ต้องเปิดผ่าน https บนเบราว์เซอร์รุ่นใหม่)</p>}
-        <button type="button" className="btn btn-primary btn-lg battle-start" onClick={onStart} disabled={!selected || unsupported || preparing !== null}>
+        <button type="button" className="btn btn-primary btn-lg battle-start" onClick={onStart} disabled={!canStart || unsupported || preparing !== null}>
           <Icon name="trophy" /> {preparing !== null ? `กำลังเตรียมทำนองเพลง… ${Math.round(preparing * 100)}%` : 'เริ่มแข่ง!'}
         </button>
       </section>

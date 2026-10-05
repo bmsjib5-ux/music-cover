@@ -153,8 +153,13 @@ interface YTPlayerEvent {
 }
 export interface YTPlayer {
   loadVideoById(id: string): void;
+  cueVideoById(id: string): void;
   playVideo(): void;
   pauseVideo(): void;
+  seekTo(seconds: number, allowSeekAhead: boolean): void;
+  getCurrentTime(): number;
+  getDuration(): number;
+  getPlayerState(): number;
   setPlaybackRate(r: number): void;
   getAvailablePlaybackRates(): number[];
   destroy(): void;
@@ -207,11 +212,45 @@ export function loadYouTubeApi(): Promise<YTNamespace> {
   return apiPromise;
 }
 
-export const YT_STATE = { ENDED: 0, PLAYING: 1, PAUSED: 2 } as const;
+export const YT_STATE = { UNSTARTED: -1, ENDED: 0, PLAYING: 1, PAUSED: 2, BUFFERING: 3, CUED: 5 } as const;
 
 export function youtubeErrorMessage(code: number): string {
   if (code === 101 || code === 150) return 'เจ้าของวิดีโอไม่อนุญาตให้เล่นนอก YouTube';
   if (code === 100) return 'ไม่พบวิดีโอ (อาจถูกลบหรือเป็นส่วนตัว)';
   if (code === 2) return 'ลิงก์วิดีโอไม่ถูกต้อง';
   return 'เล่นวิดีโอไม่ได้';
+}
+
+// ---------- เดาชื่อเพลง/ศิลปินจากชื่อวิดีโอ ----------
+const NOISE = [
+  /\b(?:official|music|lyrics?|lyric video|mv|m\/v|audio|video|visualizer|hd|hq|4k|karaoke|instrumental)\b/gi,
+  /(?:คาราโอเกะ|เนื้อเพลง|มิวสิควิดีโอ|ซับไทย|ไม่มีเสียงร้อง)/g,
+];
+
+function stripNoise(s: string): string {
+  let out = s;
+  for (const re of NOISE) out = out.replace(re, ' ');
+  return out
+    .replace(/[|/\\]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/^[\s\-–—:|·]+|[\s\-–—:|·]+$/g, '')
+    .trim();
+}
+
+/** ทำชื่อวิดีโอให้สะอาด เช่น "ศิลปิน - เพลง [Official MV] (คาราโอเกะ)" → "ศิลปิน - เพลง" */
+export function cleanVideoTitle(videoTitle: string): string {
+  const parts = videoTitle
+    // ตัดส่วนในวงเล็บทุกแบบ เช่น [Official MV] (Karaoke) 【MV】 「...」
+    .replace(/[\[(【「『{][^\])】」』}]*[\])】」』}]/g, ' ')
+    .replace(/\s(?:feat\.?|ft\.)\s[^-–—|｜]*/gi, ' ')
+    .replace(/#\S+/g, ' ')
+    .split(/\s[-–—|:]\s|\s?[|｜]\s?|\s[-–—]|[-–—]\s/)
+    .map(stripNoise)
+    .filter(Boolean);
+  return parts.length ? parts.join(' - ') : stripNoise(videoTitle) || videoTitle.trim();
+}
+
+/** คำค้นเนื้อเพลงจากชื่อวิดีโอ (LRCLIB ค้นทั้งชื่อเพลงและศิลปิน ลำดับคำไม่สำคัญ) */
+export function lyricsQueryFromTitle(videoTitle: string): string {
+  return cleanVideoTitle(videoTitle).replace(/\s-\s/g, ' ');
 }

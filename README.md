@@ -41,6 +41,14 @@ npm run build      # ได้ไฟล์ static ใน dist/
 
 > ไมโครโฟน, Auto-Tune และการปรับคีย์ต้องเปิดผ่าน **https** หรือ `localhost` (ข้อกำหนดของเบราว์เซอร์)
 
+### Deploy บน Render (static site ฟรี)
+repo มีไฟล์ `render.yaml` ไว้แล้ว
+1. เข้า [Render Dashboard](https://dashboard.render.com) → **New → Blueprint**
+2. เชื่อม GitHub แล้วเลือก repo `music-cover` และ branch ที่ต้องการ
+3. กด **Apply** — Render จะรัน `npm ci && npm run build` แล้วเสิร์ฟโฟลเดอร์ `dist/` ให้ (มี https ในตัว ไมค์/Auto-Tune ใช้ได้)
+
+หรือสร้างเองแบบ **New → Static Site**: Build Command `npm ci && npm run build`, Publish Directory `dist`
+
 ### Deploy ฟรีบน GitHub Pages
 1. Settings → Pages → Build and deployment → Source: **GitHub Actions**
 2. push ขึ้น `main` — workflow `.github/workflows/deploy.yml` จะ build และ deploy ให้

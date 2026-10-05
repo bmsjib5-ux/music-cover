@@ -9,6 +9,7 @@ import { queue } from '../lib/queue';
 import { newId } from '../lib/id';
 import { toast } from '../lib/toast';
 import { addDemoSong } from '../lib/songs';
+import { getBestScores, type BestScore } from '../lib/scoring';
 import type { Song } from '../lib/types';
 import { Icon } from '../components/Icon';
 
@@ -24,7 +25,7 @@ function SyncBadge({ song }: { song: Song }) {
   );
 }
 
-function SongCard({ song }: { song: Song }) {
+function SongCard({ song, best }: { song: Song; best: BestScore | undefined }) {
   const ready = song.lines.length > 0 && syncedCount(song.lines) === song.lines.length;
   const addToQueue = () => {
     queue.add({ key: newId(), kind: 'local', songId: song.id, title: song.title, artist: song.artist });
@@ -58,6 +59,7 @@ function SongCard({ song }: { song: Song }) {
           <SyncBadge song={song} />
           {song.stereo === false && <span className="badge">โมโน</span>}
           {song.demo && <span className="badge accent">ตัวอย่าง</span>}
+          {best && <span className="badge best-badge">🏆 {best.best} คะแนน</span>}
         </div>
       </div>
       <div className="song-actions">
@@ -97,6 +99,7 @@ export function LibraryPage() {
   const [songs, setSongs] = useState<Song[] | null>(null);
   const [query, setQuery] = useState('');
   const [creatingDemo, setCreatingDemo] = useState(false);
+  const bestScores = useMemo(getBestScores, [songs]);
 
   useEffect(() => {
     const load = () => void songsDb.all().then(setSongs);
@@ -176,7 +179,7 @@ export function LibraryPage() {
         ) : (
           <div className="song-list">
             {filtered.map((s) => (
-              <SongCard key={s.id} song={s} />
+              <SongCard key={s.id} song={s} best={bestScores[s.id]} />
             ))}
           </div>
         )}

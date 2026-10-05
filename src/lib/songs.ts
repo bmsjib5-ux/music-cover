@@ -1,13 +1,34 @@
 import { decodeBlob } from './wav';
 import { analyzeChannels, type AudioInfo } from './analyze';
 import { songsDb } from './db';
-import { createDemoSong } from './demoSong';
+import { createDemoSong, demoMelody } from './demoSong';
+import { extractMelody, type Melody } from './melody';
+import type { Song } from './types';
 
-export async function analyzeFile(blob: Blob): Promise<AudioInfo> {
+/** วิเคราะห์ไฟล์เพลง + ถอดเส้นทำนองเสียงร้อง (ไฟล์โมโนแยกเสียงร้องไม่ได้ → melody = null) */
+export async function analyzeFile(blob: Blob, onProgress?: (p: number) => void): Promise<AudioInfo & { melody: Melody | null }> {
   const buf = await decodeBlob(blob);
   const channels = [buf.getChannelData(0)];
   if (buf.numberOfChannels > 1) channels.push(buf.getChannelData(1));
-  return analyzeChannels({ sampleRate: buf.sampleRate, channels });
+  const info = analyzeChannels({ sampleRate: buf.sampleRate, channels });
+  const melody = info.stereo ? await extractMelody(buf.sampleRate, channels[0], channels[1], onProgress) : null;
+  return { ...info, melody };
+}
+
+/** คืนเส้นทำนองของเพลง ถ้ายังไม่มีจะถอดจากไฟล์เสียงแล้วบันทึกไว้ */
+export async function ensureMelody(song: Song, onProgress?: (p: number) => void): Promise<Melody | null> {
+  if (song.melody !== undefined) return song.melody;
+  let melody: Melody | null = null;
+  if (song.demo) melody = demoMelody();
+  else if (song.audio && song.stereo !== false) {
+    const buf = await decodeBlob(song.audio);
+    if (buf.numberOfChannels > 1) {
+      melody = await extractMelody(buf.sampleRate, buf.getChannelData(0), buf.getChannelData(1), onProgress);
+    }
+  }
+  const latest = await songsDb.get(song.id);
+  if (latest) await songsDb.put({ ...latest, melody });
+  return melody;
 }
 
 /** ระยะเวลาจาก metadata (เร็ว ไม่ต้องถอดรหัสทั้งไฟล์) */

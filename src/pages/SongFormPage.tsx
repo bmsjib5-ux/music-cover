@@ -116,18 +116,19 @@ export function SongFormPage({ id }: Props) {
       return;
     }
     const lines = mergeTimings(timingSource, textToLines(lyrics));
-    let info: Pick<Song, 'duration' | 'stereo' | 'peaks' | 'key'> = {
+    let info: Pick<Song, 'duration' | 'stereo' | 'peaks' | 'key' | 'melody'> = {
       duration: song?.duration ?? fileDuration,
       stereo: song?.stereo ?? null,
       peaks: song?.peaks ?? [],
       key: song?.key ?? null,
+      melody: song?.melody,
     };
     if (file) {
       setSaving('กำลังวิเคราะห์ไฟล์เพลง (หาคีย์, ตรวจสเตอริโอ)…');
       try {
-        info = await analyzeFile(file);
+        info = await analyzeFile(file, (p) => setSaving(`กำลังถอดทำนองเสียงร้องเพื่อใช้ให้คะแนน… ${Math.round(p * 100)}%`));
       } catch {
-        info = { duration: fileDuration, stereo: null, peaks: [], key: null };
+        info = { duration: fileDuration, stereo: null, peaks: [], key: null, melody: undefined };
         toast('วิเคราะห์ไฟล์ไม่สำเร็จ แต่ยังบันทึกได้', 'error');
       }
     }

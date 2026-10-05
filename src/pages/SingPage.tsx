@@ -10,6 +10,7 @@ import { queue } from '../lib/queue';
 import { newId } from '../lib/id';
 import { toast } from '../lib/toast';
 import type { Cover, Song } from '../lib/types';
+import { getBestScore, SCORE_EVENT } from '../lib/scoring';
 import { KaraokePlayer } from '../components/KaraokePlayer';
 import { MicPanel } from '../components/MicPanel';
 import { Icon } from '../components/Icon';
@@ -64,6 +65,13 @@ export function SingPage({ id }: { id: string }) {
   const [missing, setMissing] = useState(false);
   const [covers, setCovers] = useState<Cover[]>([]);
   const [keyShift, setKeyShift] = useState(0);
+  const [best, setBest] = useState(() => getBestScore(id));
+
+  useEffect(() => {
+    const onScore = () => setBest(getBestScore(id));
+    window.addEventListener(SCORE_EVENT, onScore);
+    return () => window.removeEventListener(SCORE_EVENT, onScore);
+  }, [id]);
 
   useEffect(() => {
     const load = () =>
@@ -92,7 +100,14 @@ export function SingPage({ id }: { id: string }) {
       <div className="page-head">
         <div>
           <h1>{song.title}</h1>
-          <p className="muted">{song.artist || 'ไม่ระบุศิลปิน'}</p>
+          <p className="muted">
+            {song.artist || 'ไม่ระบุศิลปิน'}
+            {best && (
+              <span className="badge best-badge" style={{ marginLeft: 8 }}>
+                🏆 สถิติสูงสุด {best.best} คะแนน
+              </span>
+            )}
+          </p>
         </div>
         <div className="row">
           <a className="btn btn-ghost" href={paths.sync(song.id)}>

@@ -1,0 +1,192 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { getEngine } from '../audio/engine';
+import { ensureMelody } from '../lib/songs';
+import { recordScore, getBestScore, ScoreSession, MIN_MELODY_COVERAGE, type LineScore, type ScoreResult } from '../lib/scoring';
+import { melodyCoverage, type Melody } from '../lib/melody';
+import type { TimedLine } from '../lib/lyrics';
+import type { Song } from '../lib/types';
+
+/** ชดเชยความหน่วงของไมค์ + ตัวตรวจระดับเสียง (วินาที) */
+const MIC_DELAY = 0.06;
+/** เก็บเสียงที่ร้องย้อนหลังไว้วาดบนแถบทำนอง (วินาที) */
+const TRAIL_SECONDS = 3;
+
+export interface TrailFrame {
+  t: number;
+  /** cents หรือ 0 */
+  c: number;
+}
+
+export interface FinalScore extends ScoreResult {
+  isBest: boolean;
+  eligible: boolean;
+  best: number | null;
+}
+
+export type ScoringStatus = 'off' | 'preparing' | 'needs-mic' | 'ready';
+
+export function useScoring(song: Song, timeline: TimedLine[], keyShift: number, enabled: boolean) {
+  const engine = getEngine();
+  const [status, setStatus] = useState<ScoringStatus>('off');
+  const [progress, setProgress] = useState(0);
+  const [melody, setMelody] = useState<Melody | null>(null);
+  const [lastLine, setLastLine] = useState<{ line: LineScore; at: number } | null>(null);
+  const [running, setRunning] = useState<number | null>(null);
+  const [result, setResult] = useState<FinalScore | null>(null);
+  const [micOn, setMicOn] = useState(engine.state.micOn);
+  const sessionRef = useRef<ScoreSession | null>(null);
+  const trailRef = useRef<TrailFrame[]>([]);
+  const nextLineRef = useRef(0);
+  const keyShiftRef = useRef(keyShift);
+  keyShiftRef.current = keyShift;
+
+  useEffect(() => engine.subscribe(() => setMicOn(engine.state.micOn)), [engine]);
+
+  // เตรียมเส้นทำนอง (ถอดจากไฟล์ถ้ายังไม่มี)
+  useEffect(() => {
+    if (!enabled) {
+      setStatus('off');
+      return;
+    }
+    let cancelled = false;
+    setStatus('preparing');
+    setProgress(0);
+    ensureMelody(song, (p) => !cancelled && setProgress(p))
+      .then((m) => {
+        if (cancelled) return;
+        setMelody(m);
+        setStatus('ready');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setMelody(null);
+        setStatus('ready');
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, song.id]);
+
+  const startSession = useCallback((from?: number) => {
+    const t = from ?? engine.lyricTime;
+    sessionRef.current = new ScoreSession(timeline, melody, { keyShift: keyShiftRef.current, songKey: song.key, startTime: t });
+    trailRef.current = [];
+    nextLineRef.current = timeline.findIndex((l) => l.end > t);
+    if (nextLineRef.current < 0) nextLineRef.current = timeline.length;
+    setLastLine(null);
+    setRunning(null);
+    setResult(null);
+  }, [engine, timeline, melody, song.key]);
+
+  const active = enabled && status === 'ready' && micOn;
+
+  // สร้างรอบใหม่เมื่อพร้อม / เปลี่ยนเพลง / เปลี่ยนเวลาเนื้อ
+  useEffect(() => {
+    if (!active) {
+      sessionRef.current = null;
+      return;
+    }
+    startSession();
+  }, [active, startSession]);
+
+  useEffect(() => {
+    sessionRef.current?.setKeyShift(keyShift);
+  }, [keyShift]);
+
+  // รับระดับเสียงจากไมค์
+  useEffect(() => {
+    if (!active) return;
+    return engine.onPitch((p) => {
+      const session = sessionRef.current;
+      if (!session || engine.el.paused) return;
+      const t = engine.lyricTime - MIC_DELAY;
+      session.add(t, p.voiced ? p.midi : null);
+      const trail = trailRef.current;
+      trail.push({ t, c: p.voiced ? p.midi * 100 : 0 });
+      while (trail.length && trail[0].t < t - TRAIL_SECONDS) trail.shift();
+      // ให้คะแนนบรรทัดที่เพิ่งจบ
+      let next = nextLineRef.current;
+      while (next < timeline.length && t > timeline[next].end + 0.25) {
+        const ls = session.scoreLine(next);
+        if (ls) setLastLine({ line: ls, at: performance.now() });
+        next++;
+      }
+      if (next !== nextLineRef.current) {
+        nextLineRef.current = next;
+        setRunning(session.runningScore());
+      }
+    });
+  }, [active, engine, timeline]);
+
+  // การกระโดดตำแหน่งเพลง: ย้อนไปต้นเพลง = เริ่มรอบใหม่, กระโดดที่อื่น = ไม่นับสถิติ
+  // หลังเพลงจบ (ไม่มีรอบที่ค้างอยู่) การกดเล่น/ย้อนเพลงจะเริ่มรอบใหม่ให้เอง
+  useEffect(() => {
+    if (!active) return;
+    const el = engine.el;
+    const onSeeked = () => {
+      const session = sessionRef.current;
+      const t = engine.lyricTime;
+      const first = timeline[0]?.start ?? 0;
+      if (!session || t < first - 0.3) {
+        startSession(t);
+        return;
+      }
+      session.seeked = true;
+      const idx = timeline.findIndex((l) => l.end > t);
+      nextLineRef.current = idx < 0 ? timeline.length : idx;
+      trailRef.current = [];
+    };
+    const onPlay = () => {
+      if (!sessionRef.current) startSession();
+    };
+    el.addEventListener('seeked', onSeeked);
+    el.addEventListener('play', onPlay);
+    return () => {
+      el.removeEventListener('seeked', onSeeked);
+      el.removeEventListener('play', onPlay);
+    };
+  }, [active, engine, timeline, startSession]);
+
+  /** เรียกเมื่อเพลงจบ — คืนค่า true ถ้ามีผลคะแนนให้แสดง */
+  const finish = useCallback((): boolean => {
+    const session = sessionRef.current;
+    if (!session) return false;
+    const r = session.finalize();
+    sessionRef.current = null;
+    if (r.lines.length === 0) return false;
+    const first = timeline[0]?.start ?? 0;
+    const eligible = !session.seeked && session.startedAt <= first + 1;
+    const isBest = eligible && r.total > 0 ? recordScore(song.id, r.total) : false;
+    setResult({ ...r, eligible, isBest, best: getBestScore(song.id)?.best ?? null });
+    return true;
+  }, [timeline, song.id]);
+
+  const dismissResult = useCallback(() => setResult(null), []);
+
+  /** melody = เทียบกับทำนองของเพลง, scale = เทียบกับโน้ตในคีย์ (ถอดทำนองไม่ชัด) */
+  const mode = useMemo(
+    () => (melody && melodyCoverage(melody, timeline) >= MIN_MELODY_COVERAGE ? 'melody' : 'scale'),
+    [melody, timeline],
+  );
+
+  useEffect(() => {
+    if (enabled && status === 'ready' && !micOn) setStatus('needs-mic');
+    if (enabled && status === 'needs-mic' && micOn) setStatus('ready');
+  }, [enabled, status, micOn]);
+
+  return {
+    status,
+    progress,
+    melody,
+    mode,
+    trailRef,
+    lastLine,
+    running,
+    result,
+    finish,
+    dismissResult,
+    /** เริ่มนับใหม่ (from = เวลาในเพลงที่เริ่ม เช่น 0 เมื่อเล่นใหม่ตั้งแต่ต้น) */
+    restart: startSession,
+  };
+}

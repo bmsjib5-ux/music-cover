@@ -7,8 +7,12 @@ import { getPrefs, getSongPrefs, setPrefs, setSongPrefs } from '../lib/prefs';
 import { songsDb } from '../lib/db';
 import type { Song } from '../lib/types';
 import { useEngineState } from '../hooks/useEngine';
+import { useScoring } from '../hooks/useScoring';
+import { toast } from '../lib/toast';
 import { KaraokeLyrics } from './KaraokeLyrics';
 import { Visualizer } from './Visualizer';
+import { PitchLane } from './PitchLane';
+import { ScoreResult } from './ScoreResult';
 import { Icon } from './Icon';
 import { Slider, Stepper } from './Controls';
 
@@ -30,6 +34,7 @@ export function KaraokePlayer({ song, autoPlay, onEnded, onKeyShift, extraAction
   const shellRef = useRef<HTMLDivElement>(null);
   const onEndedRef = useRef(onEnded);
   onEndedRef.current = onEnded;
+  const finishScoreRef = useRef<() => boolean>(() => false);
 
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
@@ -86,7 +91,8 @@ export function KaraokePlayer({ song, autoPlay, onEnded, onKeyShift, extraAction
     };
     const onEnd = () => {
       setPlaying(false);
-      onEndedRef.current?.();
+      // ถ้ามีผลคะแนน ให้แสดงก่อน แล้วค่อยไปเพลงถัดไปจากหน้าผลคะแนน
+      if (!finishScoreRef.current()) onEndedRef.current?.();
     };
     const onError = () => setLoadError('เล่นไฟล์เสียงนี้ไม่ได้ — ลองแปลงเป็น MP3 แล้วอัปโหลดใหม่');
     el.addEventListener('play', onPlay);
@@ -109,6 +115,22 @@ export function KaraokePlayer({ song, autoPlay, onEnded, onKeyShift, extraAction
 
   const timeline = useMemo(() => buildTimeline(song.lines, offset, duration), [song.lines, offset, duration]);
   const getTime = useCallback(() => engine.lyricTime, [engine]);
+  const scoringOn = prefs.scoring && workletsOk !== false && timeline.length > 0;
+  const score = useScoring(song, timeline, songPrefs.key, scoringOn);
+  finishScoreRef.current = score.finish;
+
+  const toggleScoring = async () => {
+    const next = !prefs.scoring;
+    updatePrefs({ scoring: next });
+    if (next && !(await engine.enableMic())) toast('ต้องอนุญาตให้ใช้ไมโครโฟนก่อนจึงจะนับคะแนนได้', 'error', 5000);
+  };
+
+  const retry = () => {
+    score.dismissResult();
+    engine.seek(0);
+    score.restart(0);
+    engine.play().catch(() => setNeedsTap(true));
+  };
 
   const togglePlay = useCallback(() => {
     if (engine.el.paused) engine.play().catch(() => setNeedsTap(true));
@@ -126,12 +148,12 @@ export function KaraokePlayer({ song, autoPlay, onEnded, onKeyShift, extraAction
     if (patch.tempo !== undefined) engine.setRate(next.tempo);
   };
 
-  const updatePrefs = (patch: Partial<typeof prefs>) => {
+  function updatePrefs(patch: Partial<typeof prefs>) {
     const next = setPrefs(patch);
     setPrefsState(next);
     if (patch.voice !== undefined) engine.setVoiceLevel(next.voice);
     if (patch.volume !== undefined) engine.setVolume(next.volume);
-  };
+  }
 
   const changeOffset = (delta: number) => {
     const next = Math.round((offset + delta) * 10) / 10;
@@ -188,8 +210,33 @@ export function KaraokePlayer({ song, autoPlay, onEnded, onKeyShift, extraAction
   return (
     <div className="player">
       <div ref={shellRef} className={`player-shell ${fullscreen ? 'is-full' : ''} ${theater ? 'theater' : ''}`}>
-        <div className="stage" onDoubleClick={toggleFullscreen}>
+        <div className={`stage ${scoringOn ? 'scoring' : ''}`} onDoubleClick={toggleFullscreen}>
           <Visualizer />
+          {scoringOn && score.status === 'ready' && (
+            <PitchLane
+              melody={score.melody}
+              showMelody={score.mode === 'melody'}
+              keyShift={songPrefs.key}
+              getTime={getTime}
+              trailRef={score.trailRef}
+            />
+          )}
+          {scoringOn && score.status === 'preparing' && (
+            <div className="score-status">กำลังถอดทำนองเพลงเพื่อให้คะแนน… {Math.round(score.progress * 100)}%</div>
+          )}
+          {scoringOn && score.status === 'needs-mic' && (
+            <button type="button" className="score-status as-button" onClick={() => void engine.enableMic()}>
+              <Icon name="mic" size={16} /> เปิดไมค์เพื่อเริ่มนับคะแนน
+            </button>
+          )}
+          {scoringOn && score.lastLine && (
+            <div
+              key={score.lastLine.at}
+              className={`line-feedback ${score.lastLine.line.score >= 75 ? 'hi' : score.lastLine.line.score >= 45 ? 'mid' : 'lo'}`}
+            >
+              {score.lastLine.line.label} <strong>{score.lastLine.line.silent ? '' : score.lastLine.line.score}</strong>
+            </div>
+          )}
           <div className="stage-meta">
             <span className="stage-meta-title">{song.title}</span>
             {song.artist && <span className="stage-meta-artist"> — {song.artist}</span>}
@@ -198,8 +245,24 @@ export function KaraokePlayer({ song, autoPlay, onEnded, onKeyShift, extraAction
             {songPrefs.key !== 0 && <span className="badge">คีย์ {formatShift(songPrefs.key)}</span>}
             {songPrefs.tempo !== 1 && <span className="badge">{Math.round(songPrefs.tempo * 100)}%</span>}
             {stereoOk && prefs.voice < 1 && <span className="badge">ตัดเสียงร้อง</span>}
+            {scoringOn && score.running !== null && <span className="badge score-badge">🎯 {score.running}</span>}
           </div>
           <KaraokeLyrics timeline={timeline} getTime={getTime} mode={prefs.lyricMode} title={song.title} artist={song.artist} />
+          {score.result && (
+            <ScoreResult
+              result={score.result}
+              onRetry={retry}
+              onClose={score.dismissResult}
+              onNext={
+                onEnded
+                  ? () => {
+                      score.dismissResult();
+                      onEndedRef.current?.();
+                    }
+                  : undefined
+              }
+            />
+          )}
           {(needsTap || loadError) && (
             <div className="stage-overlay">
               {loadError ? (
@@ -232,6 +295,16 @@ export function KaraokePlayer({ song, autoPlay, onEnded, onKeyShift, extraAction
             aria-label="ตำแหน่งเพลง"
           />
           <span className="time">{formatTime(duration)}</span>
+          <button
+            type="button"
+            className={`chip ${prefs.scoring ? 'on' : ''}`}
+            onClick={() => void toggleScoring()}
+            disabled={workletsOk === false || timeline.length === 0}
+            aria-pressed={prefs.scoring}
+            title={timeline.length === 0 ? 'ต้องซิงก์เนื้อเพลงก่อนจึงจะนับคะแนนได้' : 'นับคะแนนการร้อง (ใช้ไมค์)'}
+          >
+            🎯 <span>นับคะแนน</span>
+          </button>
           {extraActions}
           <button type="button" className="icon-btn" onClick={toggleFullscreen} aria-label="เต็มจอ">
             <Icon name={fullscreen || theater ? 'minimize' : 'maximize'} />

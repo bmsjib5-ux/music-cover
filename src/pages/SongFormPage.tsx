@@ -11,10 +11,16 @@ import { newId } from '../lib/id';
 import { toast } from '../lib/toast';
 import type { LyricLine, MusicKey, Song } from '../lib/types';
 import { Icon } from '../components/Icon';
+import { YouTubeSearch } from '../components/YouTubeSearch';
+import { cleanVideoTitle, thumbnailUrl, type YouTubeVideo } from '../lib/youtube';
 
 interface Props {
   id?: string;
+  /** เปิดหน้าเพิ่มเพลงในโหมดลิงก์ YouTube */
+  youtube?: boolean;
 }
+
+type Source = 'file' | 'youtube';
 
 /** "ศิลปิน - ชื่อเพลง.mp3" → { artist, title } */
 function guessFromFileName(name: string): { title: string; artist: string } {
@@ -23,7 +29,7 @@ function guessFromFileName(name: string): { title: string; artist: string } {
   return m ? { artist: m[1].trim(), title: m[2].trim() } : { title: base, artist: '' };
 }
 
-export function SongFormPage({ id }: Props) {
+export function SongFormPage({ id, youtube }: Props) {
   const [song, setSong] = useState<Song | null>(null);
   const [loading, setLoading] = useState(!!id);
   const [title, setTitle] = useState('');
@@ -38,6 +44,9 @@ export function SongFormPage({ id }: Props) {
   const [results, setResults] = useState<LrclibResult[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [source, setSource] = useState<Source>(youtube ? 'youtube' : 'file');
+  /** วิดีโอ YouTube ที่เลือก (เพลงจาก YouTube ไม่มีไฟล์เสียง) */
+  const [video, setVideo] = useState<YouTubeVideo | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const lrcInput = useRef<HTMLInputElement>(null);
 
@@ -53,6 +62,10 @@ export function SongFormPage({ id }: Props) {
       setTimingSource(s.lines);
       setFileDuration(s.duration);
       setKeyChoice(s.key ? `${s.key.root}-${s.key.mode}` : 'auto');
+      if (s.youtube) {
+        setSource('youtube');
+        setVideo({ videoId: s.youtube.videoId, title: s.title, channel: s.youtube.channel, thumbnail: thumbnailUrl(s.youtube.videoId) });
+      }
     });
   }, [id]);
 
@@ -84,20 +97,31 @@ export function SongFormPage({ id }: Props) {
     toast(parsed.timed ? `ใส่เนื้อพร้อมเวลาซิงก์จาก${source}แล้ว` : `ใส่เนื้อจาก${source}แล้ว (ยังไม่มีเวลา)`, 'success');
   };
 
-  const search = async () => {
-    if (!title.trim()) {
+  const search = async (t = title, a = artist) => {
+    if (!t.trim()) {
       toast('กรอกชื่อเพลงก่อนค้นหา', 'error');
       return;
     }
     setSearching(true);
     setResults(null);
     try {
-      setResults(await searchLrclib(title, artist));
+      setResults(await searchLrclib(t, a));
     } catch {
       toast('ค้นหาไม่สำเร็จ ตรวจสอบอินเทอร์เน็ต', 'error');
     } finally {
       setSearching(false);
     }
+  };
+
+  /** เลือกวิดีโอ: เติมชื่อเพลง/ศิลปินจากชื่อวิดีโอ แล้วค้นเนื้อเพลงที่มีเวลาให้เลย */
+  const pickVideo = (v: YouTubeVideo) => {
+    setVideo(v);
+    const g = guessFromFileName(cleanVideoTitle(v.title));
+    const t = title.trim() || g.title;
+    const a = artist.trim() || g.artist;
+    setTitle(t);
+    setArtist(a);
+    if (!lyrics.trim()) void search(t, a);
   };
 
   const pickResult = (r: LrclibResult) => {
@@ -111,8 +135,9 @@ export function SongFormPage({ id }: Props) {
       toast('กรุณาใส่ชื่อเพลง', 'error');
       return;
     }
-    if (!file && !song?.audio) {
-      toast('กรุณาเลือกไฟล์เพลง', 'error');
+    const isYoutube = source === 'youtube';
+    if (isYoutube ? !video : !file && !song?.audio) {
+      toast(isYoutube ? 'กรุณาเลือกวิดีโอ YouTube' : 'กรุณาเลือกไฟล์เพลง', 'error');
       return;
     }
     const lines = mergeTimings(timingSource, textToLines(lyrics));
@@ -123,7 +148,10 @@ export function SongFormPage({ id }: Props) {
       key: song?.key ?? null,
       melody: song?.melody,
     };
-    if (file) {
+    if (isYoutube) {
+      // วิดีโอ YouTube: เข้าถึงเสียงไม่ได้ จึงไม่มี waveform/ทำนอง (ให้คะแนนจากจังหวะ + ความตรงคีย์)
+      info = { duration: song?.youtube ? song.duration : 0, stereo: null, peaks: [], key: song?.youtube ? song.key : null, melody: null };
+    } else if (file) {
       setSaving('กำลังวิเคราะห์ไฟล์เพลง (หาคีย์, ตรวจสเตอริโอ)…');
       try {
         info = await analyzeFile(file, (p) => setSaving(`กำลังถอดทำนองเสียงร้องเพื่อใช้ให้คะแนน… ${Math.round(p * 100)}%`));
@@ -144,8 +172,9 @@ export function SongFormPage({ id }: Props) {
       updatedAt: now,
       title: title.trim(),
       artist: artist.trim(),
-      audio: file ?? song?.audio ?? null,
-      audioName: file?.name ?? song?.audioName ?? '',
+      audio: isYoutube ? null : (file ?? song?.audio ?? null),
+      audioName: isYoutube ? '' : (file?.name ?? song?.audioName ?? ''),
+      youtube: isYoutube && video ? { videoId: video.videoId, channel: video.channel } : undefined,
       offset: song?.offset ?? 0,
       demo: song?.demo,
       lines,
@@ -179,37 +208,78 @@ export function SongFormPage({ id }: Props) {
       <h1>{song ? 'แก้ไขเพลง' : 'เพิ่มเพลงใหม่'}</h1>
 
       <section className="card form">
-        <div
-          className={`dropzone ${dragOver ? 'over' : ''} ${audioName ? 'has-file' : ''}`}
-          onClick={() => fileInput.current?.click()}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragOver(true);
-          }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragOver(false);
-            void pickFile(e.dataTransfer.files[0]);
-          }}
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && fileInput.current?.click()}
-        >
-          <Icon name={audioName ? 'music' : 'upload'} size={30} />
-          {audioName ? (
-            <>
-              <strong>{audioName}</strong>
-              <span className="muted">{fileDuration > 0 && `${formatTime(fileDuration)} · `}แตะเพื่อเปลี่ยนไฟล์</span>
-            </>
+        {!song && (
+          <div className="tabs">
+            <button type="button" className={source === 'file' ? 'on' : ''} onClick={() => setSource('file')}>
+              <Icon name="upload" size={18} /> ไฟล์เพลง
+            </button>
+            <button type="button" className={source === 'youtube' ? 'on' : ''} onClick={() => setSource('youtube')}>
+              <Icon name="youtube" size={18} /> ลิงก์ YouTube
+            </button>
+          </div>
+        )}
+        {source === 'youtube' ? (
+          video ? (
+            <div className="now-song yt-chosen">
+              <img className="yt-thumb" src={thumbnailUrl(video.videoId)} alt="" />
+              <div>
+                <strong>{video.title}</strong>
+                <small className="muted">YouTube · {video.channel}</small>
+              </div>
+              {!song && (
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setVideo(null)}>
+                  เปลี่ยน
+                </button>
+              )}
+            </div>
           ) : (
-            <>
-              <strong>เลือกไฟล์เพลง หรือลากมาวางที่นี่</strong>
-              <span className="muted">MP3, M4A, WAV, OGG, FLAC — ไฟล์อยู่ในเครื่องคุณเท่านั้น</span>
-            </>
-          )}
-          <input ref={fileInput} type="file" accept="audio/*,.mp3,.m4a,.wav,.ogg,.flac" hidden onChange={(e) => void pickFile(e.target.files?.[0])} />
-        </div>
+            <div className="yt-source">
+              <YouTubeSearch actionLabel="เลือก" onPick={pickVideo} />
+              <p className="muted small">
+                เพลงจาก YouTube เล่นวิดีโอพร้อมเนื้อเพลงไล่สี ร้องได้ ให้คะแนนได้ และใช้แข่งได้ — แต่ตัดเสียงร้อง/ปรับคีย์ไม่ได้
+                (แนะนำวิดีโอเวอร์ชันคาราโอเกะ)
+              </p>
+            </div>
+          )
+        ) : (
+          <div
+            className={`dropzone ${dragOver ? 'over' : ''} ${audioName ? 'has-file' : ''}`}
+            onClick={() => fileInput.current?.click()}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              void pickFile(e.dataTransfer.files[0]);
+            }}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && fileInput.current?.click()}
+          >
+            <Icon name={audioName ? 'music' : 'upload'} size={30} />
+            {audioName ? (
+              <>
+                <strong>{audioName}</strong>
+                <span className="muted">{fileDuration > 0 && `${formatTime(fileDuration)} · `}แตะเพื่อเปลี่ยนไฟล์</span>
+              </>
+            ) : (
+              <>
+                <strong>เลือกไฟล์เพลง หรือลากมาวางที่นี่</strong>
+                <span className="muted">MP3, M4A, WAV, OGG, FLAC — ไฟล์อยู่ในเครื่องคุณเท่านั้น</span>
+              </>
+            )}
+            <input
+              ref={fileInput}
+              type="file"
+              accept="audio/*,.mp3,.m4a,.wav,.ogg,.flac"
+              hidden
+              onChange={(e) => void pickFile(e.target.files?.[0])}
+            />
+          </div>
+        )}
 
         <div className="form-row">
           <label className="field">
@@ -223,7 +293,9 @@ export function SongFormPage({ id }: Props) {
           <label className="field small">
             <span>คีย์เพลง</span>
             <select value={keyChoice} onChange={(e) => setKeyChoice(e.target.value)}>
-              <option value="auto">{song?.key ? `ตรวจพบ: ${keyName(song.key)}` : 'ตรวจอัตโนมัติ'}</option>
+              <option value="auto">
+                {song?.key ? `ตรวจพบ: ${keyName(song.key)}` : source === 'youtube' ? 'ไม่ทราบ (เดาจากเสียงร้อง)' : 'ตรวจอัตโนมัติ'}
+              </option>
               {(['major', 'minor'] as const).flatMap((mode) =>
                 NOTE_NAMES.map((n, root) => (
                   <option key={`${root}-${mode}`} value={`${root}-${mode}`}>
@@ -314,7 +386,8 @@ export function SongFormPage({ id }: Props) {
           <button type="button" className="btn btn-primary" onClick={() => void save()} disabled={!!saving}>
             {saving ?? (
               <>
-                บันทึก {lineCount > 0 && timedCount === lineCount ? 'แล้วร้องเลย' : 'แล้วไปซิงก์เนื้อ'} <Icon name="back" size={16} style={{ transform: 'rotate(180deg)' }} />
+                บันทึก {lineCount > 0 && timedCount === lineCount ? 'แล้วร้องเลย' : 'แล้วไปซิงก์เนื้อ'}{' '}
+                <Icon name="back" size={16} style={{ transform: 'rotate(180deg)' }} />
               </>
             )}
           </button>

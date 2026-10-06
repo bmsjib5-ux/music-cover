@@ -34,8 +34,10 @@ body {
   margin: 0;
   min-height: 100vh;
   font-family: var(--font);
-  font-size: 16px;
+  font-size: 1rem;
   line-height: 1.6;
+  /* กันหน้ากว้างเกินจอ (มือถือจะซูมออกจนตัวหนังสือเล็ก) — clip ไม่ทำให้ sticky header เสีย */
+  overflow-x: clip;
   color: var(--text);
   background:
     radial-gradient(1200px 600px at 10% -10%, rgba(123, 92, 255, 0.22), transparent 60%),
@@ -1695,7 +1697,7 @@ details li {
 }
 @media (max-width: 860px) {
   .battle-setup {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -1887,7 +1889,7 @@ details li {
 @media (max-width: 860px) {
   .online-entry,
   .lobby-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -2584,7 +2586,7 @@ details li {
 @media (max-width: 980px) {
   .room-layout,
   .sync-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .room-side,
   .sync-main {
@@ -2638,10 +2640,10 @@ details li {
     margin-left: auto;
   }
   .form-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .cover-item {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .stage {
     aspect-ratio: 4 / 3;
@@ -2690,7 +2692,7 @@ details li {
     display: none;
   }
   .steps {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .hero-actions .btn {
     flex: 1;
@@ -3145,4 +3147,222 @@ details li {
 }
 html {
   scroll-padding-top: 72px;
+}
+
+/* ---------- ผลค้นหา YouTube / เลือกจากคลัง แบบการ์ด ---------- */
+.yt-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  max-height: none;
+  overflow: visible;
+}
+.yt-results li {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 0 0 10px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+.yt-results img {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.06);
+}
+.yt-results li > div {
+  padding: 0 10px;
+  gap: 2px;
+}
+.yt-results strong,
+.pick-list strong {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-height: 1.35;
+}
+.yt-results li > .btn {
+  margin: auto 10px 0;
+  justify-content: center;
+}
+.yt-results li.muted {
+  grid-column: 1 / -1;
+  padding: 10px;
+  border: 0;
+}
+
+@media (max-width: 720px) {
+  /* ตัวหนังสือใหญ่ขึ้นบนมือถือ */
+  html {
+    font-size: 17px;
+  }
+  .yt-results {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .pick-list li {
+    padding: 10px 12px;
+  }
+  .np-title strong {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  .yt-room-shell .transport {
+    flex-wrap: wrap;
+  }
+  .yt-room-shell .np-title {
+    flex-basis: 100%;
+  }
+  .yt-room-shell .transport .seg {
+    margin-right: auto;
+  }
+  .queue-row strong {
+    font-size: 0.95rem;
+  }
+}
+
+/* ---------- หน้าแรก: เมนูการ์ด ---------- */
+.home-menu {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+.home-menu-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: none !important;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.home-menu-card:hover {
+  border-color: var(--line-2);
+  background: rgba(255, 255, 255, 0.05);
+}
+.home-menu-card:active {
+  transform: scale(0.97);
+}
+.home-menu-card strong {
+  margin-top: 8px;
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.home-menu-card small {
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+.home-menu-icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 50px;
+  height: 50px;
+  border-radius: 16px;
+  color: #fff;
+}
+.home-menu-icon .tab-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #0d0b1a;
+}
+.tone-pink {
+  background: linear-gradient(135deg, #ff4fa3, #b65cff);
+  box-shadow: 0 8px 20px rgba(255, 79, 163, 0.3);
+}
+.tone-red {
+  background: linear-gradient(135deg, #ff4d4d, #ff8a3d);
+  box-shadow: 0 8px 20px rgba(255, 77, 77, 0.28);
+}
+.tone-violet {
+  background: linear-gradient(135deg, #7b5cff, #4f7bff);
+  box-shadow: 0 8px 20px rgba(123, 92, 255, 0.3);
+}
+.tone-cyan {
+  background: linear-gradient(135deg, #22c3e6, #3d7bff);
+  box-shadow: 0 8px 20px rgba(34, 195, 230, 0.28);
+}
+.tone-gold {
+  background: linear-gradient(135deg, #ffb340, #ff7a3d);
+  box-shadow: 0 8px 20px rgba(255, 179, 64, 0.28);
+}
+.tone-green {
+  background: linear-gradient(135deg, #2fd38a, #1ea7a0);
+  box-shadow: 0 8px 20px rgba(47, 211, 138, 0.26);
+}
+.song-cover.yt img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.yt-badge {
+  background: rgba(255, 77, 77, 0.16) !important;
+  color: #ff8080 !important;
+}
+.sync-video {
+  margin-bottom: 12px;
+  border-radius: var(--radius-sm, 12px);
+}
+.yt-chosen .btn {
+  margin-left: auto;
+  flex: none;
+}
+.yt-source {
+  margin-bottom: 14px;
+}
+@media (max-width: 720px) {
+  .home-menu {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .home-menu-card {
+    padding: 14px;
+    min-height: 132px;
+  }
+  .home-menu-card strong {
+    font-size: 1.05rem;
+  }
+  .home-menu-card small {
+    font-size: 0.8rem;
+  }
+}
+@media (max-width: 720px) {
+  /* หน้าแรกบนมือถือ: ให้เมนูการ์ดอยู่สูงขึ้น */
+  .hero p {
+    display: none;
+  }
+  .hero h1 {
+    font-size: 1.35rem;
+    margin: 0;
+  }
+  .hero {
+    padding: 14px 16px;
+  }
 }

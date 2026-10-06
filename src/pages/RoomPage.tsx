@@ -9,6 +9,7 @@ import { thumbnailUrl } from '../lib/youtube';
 import { YouTubeSearch } from '../components/YouTubeSearch';
 import type { QueueItem, Song } from '../lib/types';
 import { KaraokePlayer } from '../components/KaraokePlayer';
+import { YouTubeKaraoke } from '../components/YouTubeKaraoke';
 import { YouTubePlayer } from '../components/YouTubePlayer';
 import { MicPanel } from '../components/MicPanel';
 import { getEngine } from '../audio/engine';
@@ -205,6 +206,8 @@ function NowPlaying({ item }: { item: QueueItem }) {
     <>
       {item.kind === 'youtube' ? (
         <YouTubeNowPlaying item={item} rate={ytRate} setRate={setYtRate} skip={skip} />
+      ) : song?.youtube ? (
+        <YouTubeKaraoke song={song} autoPlay allowScoring onEnded={() => queue.advance()} extraActions={skip} />
       ) : song ? (
         <KaraokePlayer song={song} autoPlay onEnded={() => queue.advance()} onKeyShift={setKeyShift} extraActions={skip} />
       ) : (

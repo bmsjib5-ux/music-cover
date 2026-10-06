@@ -129,6 +129,8 @@ describe('router', () => {
     expect(parseRoute('#/battle/abc')).toEqual({ name: 'battle', songId: 'abc' });
     expect(parseRoute('#/online')).toEqual({ name: 'online', local: false });
     expect(parseRoute('#/online/ABC234?local')).toEqual({ name: 'online', code: 'ABC234', local: true });
+    expect(parseRoute('#/song/new')).toEqual({ name: 'new', youtube: false });
+    expect(parseRoute('#/song/new?youtube')).toEqual({ name: 'new', youtube: true });
     expect(parseRoute('#/room?x=1')).toEqual({ name: 'room' });
   });
 });

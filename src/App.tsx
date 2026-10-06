@@ -78,7 +78,7 @@ export function App() {
       page = <LibraryPage />;
       break;
     case 'new':
-      page = <SongFormPage key="new" />;
+      page = <SongFormPage key={route.youtube ? 'new-yt' : 'new'} youtube={route.youtube} />;
       break;
     case 'edit':
       page = <SongFormPage key={route.id} id={route.id} />;
@@ -121,7 +121,7 @@ export function App() {
         <nav className="nav">
           <a className={route.name === 'library' ? 'active' : ''} href={paths.library()}>
             <Icon name="home" size={18} />
-            <span>คลังเพลง</span>
+            <span>หน้าแรก</span>
           </a>
           <a className={route.name === 'room' ? 'active' : ''} href={paths.room()}>
             <Icon name="queue" size={18} />
@@ -144,7 +144,7 @@ export function App() {
       </footer>
       {/* มือถือ: เมนูหลักด้านล่างแบบแอป */}
       <nav className={`tabbar ${typing ? 'hidden' : ''}`} aria-label="เมนูหลัก">
-        <TabLink href={paths.library()} icon="home" label="คลังเพลง" active={['library', 'edit', 'sync', 'sing'].includes(route.name)} />
+        <TabLink href={paths.library()} icon="home" label="หน้าแรก" active={['library', 'edit', 'sync', 'sing'].includes(route.name)} />
         <TabLink href={paths.room()} icon="queue" label="ห้องร้อง" active={route.name === 'room'} badge={queued} />
         <TabLink href={paths.newSong()} icon="plus" label="เพิ่มเพลง" active={route.name === 'new'} cta />
         <TabLink href={paths.battle()} icon="trophy" label="แข่งร้อง" active={route.name === 'battle'} />

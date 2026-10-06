@@ -8,8 +8,53 @@ import { Icon } from '../components/Icon';
 import { Waveform } from '../components/Waveform';
 import { LyricLineView } from '../components/LyricLineView';
 import { useAnimationFrame } from '../hooks/useEngine';
+import { YouTubePlayer } from '../components/YouTubePlayer';
+import { YtClock } from '../lib/ytClock';
+import { YT_STATE } from '../lib/youtube';
+import { toast } from '../lib/toast';
 
 const MIN_HOLD = 0.3;
+
+/** สิ่งที่หน้าซิงก์ใช้จากตัวเล่น — <audio> มีครบอยู่แล้ว ส่วนวิดีโอ YouTube ใช้ตัวแปลงด้านล่าง */
+interface SyncMedia {
+  currentTime: number;
+  readonly paused: boolean;
+  readonly duration: number;
+  playbackRate: number;
+  play(): Promise<void>;
+  pause(): void;
+}
+
+function youtubeMedia(clock: YtClock): SyncMedia {
+  return {
+    get currentTime() {
+      return clock.time();
+    },
+    set currentTime(t: number) {
+      clock.player?.seekTo(t, true);
+    },
+    get paused() {
+      return clock.paused();
+    },
+    get duration() {
+      return clock.player?.getDuration() ?? 0;
+    },
+    get playbackRate() {
+      return clock.rate;
+    },
+    set playbackRate(r: number) {
+      clock.player?.setPlaybackRate(r);
+      clock.setRate(r);
+    },
+    play() {
+      clock.player?.playVideo();
+      return Promise.resolve();
+    },
+    pause() {
+      clock.player?.pauseVideo();
+    },
+  };
+}
 
 /** ตัวอย่างเนื้อไล่สีตามเวลาที่ซิงก์ไว้ */
 function Preview({ lines, getTime }: { lines: LyricLine[]; getTime: () => number }) {
@@ -36,7 +81,8 @@ export function SyncPage({ id }: { id: string }) {
   const [rate, setRate] = useState(1);
   const [duration, setDuration] = useState(0);
   const [saved, setSaved] = useState(true);
-  const audioRef = useRef<HTMLAudioElement>(null);
+  const mediaRef = useRef<SyncMedia | null>(null);
+  const ytClock = useMemo(() => new YtClock(), []);
   const listRef = useRef<HTMLOListElement>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const linesRef = useRef(lines);
@@ -83,27 +129,27 @@ export function SyncPage({ id }: { id: string }) {
     return () => clearTimeout(h);
   }, [lines, song]);
 
-  const getTime = useCallback(() => audioRef.current?.currentTime ?? 0, []);
+  const getTime = useCallback(() => mediaRef.current?.currentTime ?? 0, []);
 
   const play = () => {
-    const a = audioRef.current;
+    const a = mediaRef.current;
     if (!a) return;
     a.playbackRate = rate;
     void a.play();
   };
   const togglePlay = () => {
-    const a = audioRef.current;
+    const a = mediaRef.current;
     if (!a) return;
     if (a.paused) play();
     else a.pause();
   };
   const seek = (t: number) => {
-    const a = audioRef.current;
+    const a = mediaRef.current;
     if (a) a.currentTime = Math.max(0, Math.min(t, (a.duration || t) - 0.05));
   };
 
   const pressDown = useCallback(() => {
-    const a = audioRef.current;
+    const a = mediaRef.current;
     if (!a) return;
     if (a.paused) {
       play();
@@ -134,7 +180,7 @@ export function SyncPage({ id }: { id: string }) {
     holdRef.current = null;
     setHolding(false);
     if (!hold) return;
-    const t = audioRef.current?.currentTime ?? 0;
+    const t = mediaRef.current?.currentTime ?? 0;
     setLines((ls) => {
       const next = [...ls];
       const line = next[hold.index];
@@ -274,14 +320,39 @@ export function SyncPage({ id }: { id: string }) {
       ) : (
         <div className="sync-layout">
           <section className="card sync-main">
-            <audio
-              ref={audioRef}
-              src={audioUrl ?? undefined}
-              preload="auto"
-              onPlay={() => setPlaying(true)}
-              onPause={() => setPlaying(false)}
-              onLoadedMetadata={(e) => setDuration(e.currentTarget.duration || song.duration)}
-            />
+            {song.youtube ? (
+              <div className="yt-stage sync-video">
+                <YouTubePlayer
+                  videoId={song.youtube.videoId}
+                  rate={rate}
+                  autoplay={false}
+                  onReady={(p) => {
+                    ytClock.player = p;
+                    ytClock.setRate(rate);
+                    mediaRef.current = youtubeMedia(ytClock);
+                    setDuration(p.getDuration() || song.duration);
+                  }}
+                  onState={(st) => {
+                    ytClock.setState(st);
+                    setPlaying(st === YT_STATE.PLAYING);
+                    if (st === YT_STATE.PLAYING && ytClock.player) setDuration(ytClock.player.getDuration() || song.duration);
+                  }}
+                  onEnded={() => setPlaying(false)}
+                  onError={(msg) => toast(msg, 'error', 5000)}
+                />
+              </div>
+            ) : (
+              <audio
+                ref={(el) => {
+                  mediaRef.current = el;
+                }}
+                src={audioUrl ?? undefined}
+                preload="auto"
+                onPlay={() => setPlaying(true)}
+                onPause={() => setPlaying(false)}
+                onLoadedMetadata={(e) => setDuration(e.currentTarget.duration || song.duration)}
+              />
+            )}
             <Waveform peaks={song.peaks} duration={duration} getTime={getTime} lines={lines} cursor={cursor} onSeek={seek} />
             <div className="sync-transport">
               <button type="button" className="play-btn" onClick={togglePlay} aria-label={playing ? 'หยุด' : 'เล่น'}>
@@ -296,7 +367,7 @@ export function SyncPage({ id }: { id: string }) {
                     className={rate === r ? 'on' : ''}
                     onClick={() => {
                       setRate(r);
-                      if (audioRef.current) audioRef.current.playbackRate = r;
+                      if (mediaRef.current) mediaRef.current.playbackRate = r;
                     }}
                   >
                     {r}x

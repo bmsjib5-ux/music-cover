@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 export type Route =
   | { name: 'library' }
-  | { name: 'new' }
+  | { name: 'new'; youtube: boolean }
   | { name: 'edit'; id: string }
   | { name: 'sync'; id: string }
   | { name: 'sing'; id: string }
@@ -23,7 +23,7 @@ export function parseRoute(hash: string): Route {
   if (o) return { name: 'online', code: decodeURIComponent(o[1]), local };
   const b = /^\/battle\/([^/]+)$/.exec(path);
   if (b) return { name: 'battle', songId: decodeURIComponent(b[1]) };
-  if (path === '/song/new') return { name: 'new' };
+  if (path === '/song/new') return { name: 'new', youtube: new URLSearchParams(query).has('youtube') };
   const m = /^\/song\/([^/]+)\/(edit|sync|sing)$/.exec(path);
   if (m) return { name: m[2] as 'edit' | 'sync' | 'sing', id: decodeURIComponent(m[1]) };
   return { name: 'notFound' };
@@ -34,7 +34,7 @@ export const paths = {
   room: () => '#/room',
   battle: (songId?: string) => (songId ? `#/battle/${encodeURIComponent(songId)}` : '#/battle'),
   online: (code?: string) => (code ? `#/online/${encodeURIComponent(code)}` : '#/online'),
-  newSong: () => '#/song/new',
+  newSong: (youtube?: boolean) => (youtube ? '#/song/new?youtube' : '#/song/new'),
   edit: (id: string) => `#/song/${encodeURIComponent(id)}/edit`,
   sync: (id: string) => `#/song/${encodeURIComponent(id)}/sync`,
   sing: (id: string) => `#/song/${encodeURIComponent(id)}/sing`,

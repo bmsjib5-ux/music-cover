@@ -9,6 +9,8 @@ interface Props {
   onClose: () => void;
   /** มีเพลงถัดไปในคิว → นับถอยหลังแล้วไปต่ออัตโนมัติ */
   onNext?: () => void;
+  /** อธิบายวิธีให้คะแนนแทนข้อความเริ่มต้น (เช่น เพลง YouTube) */
+  note?: string;
 }
 
 const NEXT_SECONDS = 12;
@@ -48,7 +50,7 @@ function Bar({ label, value }: { label: string; value: number | null }) {
   );
 }
 
-export function ScoreResult({ result, onRetry, onClose, onNext }: Props) {
+export function ScoreResult({ result, onRetry, onClose, onNext, note }: Props) {
   const [shown, setShown] = useState(0);
   const [countdown, setCountdown] = useState(NEXT_SECONDS);
 
@@ -96,7 +98,7 @@ export function ScoreResult({ result, onRetry, onClose, onNext }: Props) {
           <Bar label="ความนิ่งของเสียง" value={result.stability} />
         </div>
         <p className="score-note">
-          {result.mode === 'melody' ? 'เทียบกับทำนองของเพลง' : 'ถอดทำนองจากเพลงนี้ได้ไม่ชัด จึงวัดความตรงโน้ตในคีย์ของเพลงแทน'}
+          {note ?? (result.mode === 'melody' ? 'เทียบกับทำนองของเพลง' : 'ถอดทำนองจากเพลงนี้ได้ไม่ชัด จึงวัดความตรงโน้ตในคีย์ของเพลงแทน')}
           {result.best !== null && result.eligible && ` · สถิติสูงสุด ${result.best}`}
           {!result.eligible && ' · มีการข้ามหรือเริ่มกลางเพลง จึงไม่บันทึกสถิติ'}
           {worst && worst.score < 70 && ` · ท่อนที่ควรฝึก: "${worst.text}"`}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { getEngine } from '../audio/engine';
 import { buildTimeline } from '../lib/lyrics';
 import { formatTime } from '../lib/format';
@@ -6,95 +6,22 @@ import { getPrefs, setPrefs } from '../lib/prefs';
 import { YT_STATE, type YTPlayer } from '../lib/youtube';
 import type { Song } from '../lib/types';
 import { useEngineState } from '../hooks/useEngine';
-import { useScoring, type ScoreClock } from '../hooks/useScoring';
+import { useScoring } from '../hooks/useScoring';
+import { YtClock } from '../lib/ytClock';
 import { useFullscreen } from '../hooks/useFullscreen';
 import type { BattleProps } from './KaraokePlayer';
 import { YouTubePlayer } from './YouTubePlayer';
 import { KaraokeLyrics } from './KaraokeLyrics';
 import { PitchLane } from './PitchLane';
 import { Stepper } from './Controls';
+import { ScoreResult } from './ScoreResult';
+import { toast } from '../lib/toast';
 import { Icon } from './Icon';
 
 /** จบการแข่งเองเมื่อเลยท่อนสุดท้ายไปเท่านี้ (วินาที) — ไม่ต้องรอช่วงท้าย MV */
 const END_AFTER_LAST_LINE = 4;
 /** สั่งเล่นแล้วยังไม่เล่นภายในเวลานี้ (มือถือบางรุ่นบล็อกการเล่นอัตโนมัติ) → บอกให้แตะวิดีโอ */
 const STUCK_MS = 2500;
-
-/**
- * นาฬิกาของวิดีโอ YouTube: getCurrentTime() อัปเดตเป็นช่วงๆ จึงประมาณเวลาระหว่างช่วงจาก performance.now()
- * ให้เนื้อเพลงไหลลื่น และแจ้ง play/seeked ให้ระบบให้คะแนน
- */
-class YtClock implements ScoreClock {
-  player: YTPlayer | null = null;
-  state: number = YT_STATE.UNSTARTED;
-  private anchorMedia = 0;
-  private anchorPerf = 0;
-  private lastRaw = -1;
-  private last = 0;
-  private readonly listeners = { play: new Set<() => void>(), seeked: new Set<() => void>() };
-
-  private raw(): number | null {
-    try {
-      const t = this.player?.getCurrentTime();
-      return typeof t === 'number' && Number.isFinite(t) ? t : null;
-    } catch {
-      return null;
-    }
-  }
-
-  private emit(event: 'play' | 'seeked'): void {
-    // แจ้งหลังจบงานปัจจุบัน ไม่ให้ผู้ฟังเรียก time() ซ้อนกลับเข้ามา
-    queueMicrotask(() => this.listeners[event].forEach((fn) => fn()));
-  }
-
-  private anchor(t: number, now: number): void {
-    if (Math.abs(t - this.last) > 1) this.emit('seeked');
-    this.anchorMedia = t;
-    this.anchorPerf = now;
-  }
-
-  time(): number {
-    const raw = this.raw();
-    if (raw === null) return this.last;
-    const now = performance.now();
-    if (this.state !== YT_STATE.PLAYING) {
-      this.lastRaw = raw;
-      this.anchor(raw, now);
-      return (this.last = raw);
-    }
-    const predicted = this.anchorMedia + (now - this.anchorPerf) / 1000;
-    if (raw !== this.lastRaw) {
-      this.lastRaw = raw;
-      // ค่าใหม่จาก YouTube คลาดจากที่ประมาณไว้ → ยึดค่าจริง
-      if (Math.abs(raw - predicted) > 0.12) {
-        this.anchor(raw, now);
-        return (this.last = raw);
-      }
-    }
-    return (this.last = predicted);
-  }
-
-  setState(state: number): void {
-    const was = this.state;
-    this.state = state;
-    const raw = this.raw();
-    if (raw !== null) {
-      this.lastRaw = raw;
-      this.anchor(raw, performance.now());
-      this.last = raw;
-    }
-    if (state === YT_STATE.PLAYING && was !== YT_STATE.PLAYING) this.emit('play');
-  }
-
-  paused(): boolean {
-    return this.state !== YT_STATE.PLAYING;
-  }
-
-  on(event: 'play' | 'seeked', fn: () => void): () => void {
-    this.listeners[event].add(fn);
-    return () => this.listeners[event].delete(fn);
-  }
-}
 
 interface Props {
   /** เพลงที่มี song.youtube */
@@ -106,10 +33,16 @@ interface Props {
   startAt?: number | null;
   /** โหมดตั้งเวลาเนื้อก่อนแข่ง: แสดงปุ่มเลื่อนเวลาเนื้อ */
   onOffsetChange?: (offset: number) => void;
+  /** เพลงจบ (ห้องคาราโอเกะ: ไปเพลงถัดไป) */
+  onEnded?: () => void;
+  /** ปุ่มเพิ่มเติมบนแถบควบคุม เช่น "ข้ามเพลง" */
+  extraActions?: ReactNode;
+  /** ร้องเดี่ยว: มีปุ่ม 🎯 เปิด/ปิดการนับคะแนน (ตามการตั้งค่าเดียวกับเพลงในคลัง) */
+  allowScoring?: boolean;
 }
 
 /** คาราโอเกะจากวิดีโอ YouTube: วิดีโอ + เนื้อเพลงที่ซิงก์ + ให้คะแนน (จังหวะ + ความตรงคีย์) */
-export function YouTubeKaraoke({ song, autoPlay = true, battle, startAt, onOffsetChange }: Props) {
+export function YouTubeKaraoke({ song, autoPlay = true, battle, startAt, onOffsetChange, onEnded, extraActions, allowScoring }: Props) {
   const yt = song.youtube!;
   const engine = getEngine();
   const { workletsOk } = useEngineState();
@@ -125,6 +58,8 @@ export function YouTubeKaraoke({ song, autoPlay = true, battle, startAt, onOffse
   const full = useFullscreen();
   const battleRef = useRef(battle);
   battleRef.current = battle;
+  const onEndedRef = useRef(onEnded);
+  onEndedRef.current = onEnded;
   const finishedRef = useRef(false);
   /** สั่งเล่นตอนที่วิดีโอยังโหลดไม่เสร็จ → เล่นทันทีที่พร้อม */
   const pendingPlay = useRef(false);
@@ -139,25 +74,45 @@ export function YouTubeKaraoke({ song, autoPlay = true, battle, startAt, onOffse
   // ไม่ใช้ความยาววิดีโอตัดเวลาเนื้อ (ความยาวมาทีหลัง จะทำให้รอบให้คะแนนเริ่มใหม่)
   const timeline = useMemo(() => buildTimeline(song.lines, offset, 0), [song.lines, offset]);
   const getTime = useCallback(() => clock.time(), [clock]);
-  const scoringOn = !!battle && workletsOk !== false && timeline.length > 0;
-  const score = useScoring(song, timeline, 0, scoringOn, { recordBest: false, clock });
+  const scoringOn = (battle ? true : !!allowScoring && prefs.scoring) && workletsOk !== false && timeline.length > 0;
+  const score = useScoring(song, timeline, 0, scoringOn, { recordBest: !battle, clock });
   const finishScore = useRef(score.finish);
   finishScore.current = score.finish;
+  const scoringRef = useRef(scoringOn && score.status === 'ready');
+  scoringRef.current = scoringOn && score.status === 'ready';
 
   useEffect(() => {
     if (score.lastLine) battleRef.current?.onLine(score.lastLine.line);
   }, [score.lastLine]);
 
-  const finish = useCallback(() => {
-    if (finishedRef.current || !battleRef.current) return;
-    finishedRef.current = true;
-    try {
-      clock.player?.pauseVideo();
-    } catch {
-      /* ignore */
-    }
-    battleRef.current.onFinish(finishScore.current());
-  }, [clock]);
+  /** จบเพลง: แข่ง → ส่งผล, ร้องเดี่ยว → แสดงคะแนน (ถ้านับ) หรือไปเพลงถัดไป */
+  const finish = useCallback(
+    (ended: boolean) => {
+      if (finishedRef.current) return;
+      if (battleRef.current) {
+        finishedRef.current = true;
+        try {
+          clock.player?.pauseVideo();
+        } catch {
+          /* ignore */
+        }
+        battleRef.current.onFinish(finishScore.current());
+        return;
+      }
+      const result = finishScore.current();
+      if (result) {
+        finishedRef.current = true;
+        try {
+          clock.player?.pauseVideo();
+        } catch {
+          /* ignore */
+        }
+      } else if (ended) {
+        onEndedRef.current?.();
+      }
+    },
+    [clock],
+  );
 
   const watchStuck = useCallback(() => {
     window.clearTimeout(stuckTimer.current);
@@ -202,7 +157,8 @@ export function YouTubeKaraoke({ song, autoPlay = true, battle, startAt, onOffse
     const h = window.setInterval(() => {
       const t = clock.time();
       setCurrent(t);
-      if (battleRef.current && clock.state === YT_STATE.PLAYING && t > lastEnd + END_AFTER_LAST_LINE) finish();
+      // แข่ง/นับคะแนน: ไม่ต้องรอช่วงท้าย MV
+      if ((battleRef.current || scoringRef.current) && clock.state === YT_STATE.PLAYING && t > lastEnd + END_AFTER_LAST_LINE) finish(false);
     }, 200);
     return () => window.clearInterval(h);
   }, [clock, lastEnd, finish]);
@@ -251,6 +207,20 @@ export function YouTubeKaraoke({ song, autoPlay = true, battle, startAt, onOffse
     onOffsetChange?.(v);
   };
 
+  const toggleScoring = async () => {
+    const next = !prefs.scoring;
+    setPrefsState(setPrefs({ scoring: next }));
+    if (next && !(await engine.enableMic())) toast('ต้องอนุญาตให้ใช้ไมโครโฟนก่อนจึงจะนับคะแนนได้', 'error', 5000);
+  };
+
+  const retry = () => {
+    score.dismissResult();
+    finishedRef.current = false;
+    clock.player?.seekTo(0, true);
+    score.restart(0);
+    play();
+  };
+
   const updateLyricMode = (lyricMode: 'classic' | 'scroll') => setPrefsState(setPrefs({ lyricMode }));
   const feedback = score.lastLine && (battle?.feedbackFor?.(score.lastLine.line.index) ?? true) ? score.lastLine : null;
 
@@ -265,7 +235,7 @@ export function YouTubeKaraoke({ song, autoPlay = true, battle, startAt, onOffse
             autoplay={autoPlay && !useCountdown}
             onReady={onReady}
             onState={onState}
-            onEnded={finish}
+            onEnded={() => finish(true)}
             onError={setError}
           />
         </div>
@@ -307,6 +277,22 @@ export function YouTubeKaraoke({ song, autoPlay = true, battle, startAt, onOffse
             artist={song.artist}
             decorate={battle?.decorate}
           />
+          {score.result && !battle && (
+            <ScoreResult
+              result={score.result}
+              onRetry={retry}
+              onClose={score.dismissResult}
+              note="เพลง YouTube ไม่มีเส้นทำนองให้เทียบ จึงวัดจังหวะและความตรงคีย์จากเสียงที่คุณร้อง"
+              onNext={
+                onEnded
+                  ? () => {
+                      score.dismissResult();
+                      onEndedRef.current?.();
+                    }
+                  : undefined
+              }
+            />
+          )}
           {countdown !== null && (
             <div className="start-countdown" key={countdown}>
               <span>{countdown}</span>
@@ -323,6 +309,19 @@ export function YouTubeKaraoke({ song, autoPlay = true, battle, startAt, onOffse
             <span style={{ width: `${duration > 0 ? Math.min(100, (current / duration) * 100) : 0}%` }} />
           </div>
           <span className="time">{formatTime(duration)}</span>
+          {allowScoring && !battle && (
+            <button
+              type="button"
+              className={`chip ${prefs.scoring ? 'on' : ''}`}
+              onClick={() => void toggleScoring()}
+              disabled={workletsOk === false || timeline.length === 0}
+              aria-pressed={prefs.scoring}
+              title={timeline.length === 0 ? 'ต้องซิงก์เนื้อเพลงก่อนจึงจะนับคะแนนได้' : 'นับคะแนนการร้อง (ใช้ไมค์)'}
+            >
+              🎯 <span>นับคะแนน</span>
+            </button>
+          )}
+          {extraActions}
           <div className="seg">
             <button type="button" className={prefs.lyricMode === 'classic' ? 'on' : ''} onClick={() => updateLyricMode('classic')}>
               2 บรรทัด

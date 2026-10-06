@@ -39,7 +39,7 @@ function loadName(): string {
   }
 }
 
-const isReady = (s: Song) => !!s.audio && s.lines.length > 0 && syncedCount(s.lines) > 0;
+const isReady = (s: Song) => (!!s.audio || !!s.youtube) && s.lines.length > 0 && syncedCount(s.lines) > 0;
 
 export function BattleTabs({ active }: { active: 'local' | 'online' }) {
   return (

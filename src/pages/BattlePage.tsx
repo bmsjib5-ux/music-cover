@@ -72,7 +72,7 @@ function saveSetup(players: Player[], mode: BattleMode, source: Source): void {
   }
 }
 
-const isReady = (s: Song) => !!s.audio && s.lines.length > 0 && syncedCount(s.lines) > 0;
+const isReady = (s: Song) => (!!s.audio || !!s.youtube) && s.lines.length > 0 && syncedCount(s.lines) > 0;
 
 export function BattlePage({ songId }: { songId?: string }) {
   const { workletsOk } = useEngineState();

@@ -3366,3 +3366,43 @@ html {
     padding: 14px 16px;
   }
 }
+
+/* ---------- ได้ยินเสียงตัวเอง ---------- */
+.monitor-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--line);
+}
+.monitor-options .seg {
+  align-self: flex-start;
+  flex-wrap: wrap;
+}
+.monitor-options p {
+  margin: 0;
+}
+.monitor-warn {
+  color: var(--warn, #ffd166) !important;
+}
+.monitor-row {
+  margin-bottom: 10px;
+}
+.monitor-row .monitor-options {
+  margin-top: 8px;
+}
+.monitor-options .seg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-self: stretch;
+  border-radius: 14px;
+}
+.monitor-options .seg button {
+  white-space: normal;
+  line-height: 1.3;
+  border-radius: 11px;
+  padding: 8px 10px;
+}

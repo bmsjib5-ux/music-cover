@@ -74,6 +74,44 @@ function PitchMeter({ autotune }: { autotune: boolean }) {
   );
 }
 
+/** ได้ยินเสียงตัวเองแบบไหน + บอกความหน่วง (เสียงที่ได้ยินช้ากว่าเสียงจริงเสมอ เท่ากับเวลาไมค์ → ลำโพง) */
+function MonitorOptions({ s, update }: { s: MicSettings; update: (patch: Partial<MicSettings>) => void }) {
+  const engine = getEngine();
+  const [latency, setLatency] = useState<number | null>(() => engine.monitorLatencyMs());
+  useEffect(() => {
+    // ค่าความหน่วงของลำโพงจะนิ่งหลังเล่นเสียงไปสักพัก
+    const h = setInterval(() => setLatency(engine.monitorLatencyMs()), 2000);
+    return () => clearInterval(h);
+  }, [engine]);
+  const laggy = latency === null || latency > 40;
+  const setMode = (monitorMode: MicSettings['monitorMode']) => {
+    // โหมดเฉพาะเสียงก้องต้องมีเสียงก้อง/เอคโค่ ไม่งั้นจะไม่ได้ยินอะไร
+    if (monitorMode === 'fx' && s.reverb < 0.2 && s.echo < 0.1) update({ monitorMode, reverb: 0.35 });
+    else update({ monitorMode });
+  };
+  return (
+    <div className="monitor-options">
+      <div className="ctl-label">เสียงที่ได้ยินในหูฟัง</div>
+      <div className="seg">
+        <button type="button" className={s.monitorMode === 'fx' ? 'on' : ''} onClick={() => setMode('fx')}>
+          เฉพาะเสียงก้อง (ไม่ดีเลย์)
+        </button>
+        <button type="button" className={s.monitorMode === 'full' ? 'on' : ''} onClick={() => setMode('full')}>
+          เสียงร้อง + เสียงก้อง
+        </button>
+      </div>
+      <p className={`muted small ${laggy && s.monitorMode === 'full' ? 'monitor-warn' : ''}`}>
+        {latency !== null ? `ความหน่วงไมค์ → หูฟังประมาณ ${latency} ms · ` : ''}
+        {s.monitorMode === 'fx'
+          ? 'คุณได้ยินเสียงจริงของตัวเองทันที เว็บเติมแค่เสียงก้อง/เอคโค่ให้ จึงไม่รู้สึกว่าเสียงช้ากว่าเพลง'
+          : laggy
+            ? 'ถ้ารู้สึกว่าเสียงตัวเองช้ากว่าเพลง ให้เลือก "เฉพาะเสียงก้อง" — มือถือและหูฟังบลูทูธหน่วงมาก (บลูทูธ ~0.2 วิ) หูฟังแบบสายจะดีที่สุด'
+            : 'ความหน่วงต่ำ ร้องได้สบาย'}
+      </p>
+    </div>
+  );
+}
+
 export function MicPanel({ song, songKey: songKeyProp, keyShift, onSaved }: Props) {
   const songKey = songKeyProp !== undefined ? songKeyProp : (song?.key ?? null);
   const engine = getEngine();
@@ -200,13 +238,16 @@ export function MicPanel({ song, songKey: songKeyProp, keyShift, onSaved }: Prop
       ) : (
         <>
           <MicLevel />
-          <div className="grid-controls">
+          <div className="monitor-row">
             <Toggle
               label="ได้ยินเสียงตัวเอง"
               hint="เปิดเมื่อใส่หูฟังเท่านั้น"
               checked={s.monitor}
               onChange={(v) => update({ monitor: v })}
             />
+            {s.monitor && <MonitorOptions s={s} update={update} />}
+          </div>
+          <div className="grid-controls">
             <Slider label="ระดับไมค์" value={s.gain} min={0} max={2.5} onChange={(v) => update({ gain: v })} display={`${Math.round(s.gain * 100)}%`} />
             <Slider label="เสียงก้อง (Reverb)" value={s.reverb} onChange={(v) => update({ reverb: v })} display={`${Math.round(s.reverb * 100)}%`} />
             <Slider label="เอคโค่" value={s.echo} onChange={(v) => update({ echo: v })} display={`${Math.round(s.echo * 100)}%`} />

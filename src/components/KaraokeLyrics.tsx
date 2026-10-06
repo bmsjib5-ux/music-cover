@@ -1,7 +1,10 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { findActive, progressAt, type TimedLine } from '../lib/lyrics';
 import { LyricLineView } from './LyricLineView';
 import { useAnimationFrame } from '../hooks/useEngine';
+
+/** สี/ป้ายของแต่ละท่อน (ใช้ในโหมดแข่งร้อง) — index = ลำดับในไทม์ไลน์ */
+export type LineDecor = (index: number) => { color: string; tag: string } | null;
 
 interface Props {
   timeline: TimedLine[];
@@ -9,6 +12,21 @@ interface Props {
   mode: 'classic' | 'scroll';
   title: string;
   artist: string;
+  decorate?: LineDecor;
+}
+
+function decorStyle(decorate: LineDecor | undefined, i: number): CSSProperties | undefined {
+  const d = decorate?.(i);
+  return d ? ({ '--sung': d.color } as CSSProperties) : undefined;
+}
+
+function Tag({ decorate, i }: { decorate?: LineDecor; i: number }) {
+  const d = decorate?.(i);
+  return d?.tag ? (
+    <span className="line-tag" style={{ background: d.color }}>
+      {d.tag}
+    </span>
+  ) : null;
 }
 
 const COUNTDOWN = 4;
@@ -25,7 +43,7 @@ function Countdown({ remain }: { remain: number }) {
   );
 }
 
-export function KaraokeLyrics({ timeline, getTime, mode, title, artist }: Props) {
+export function KaraokeLyrics({ timeline, getTime, mode, title, artist, decorate }: Props) {
   const [t, setT] = useState(0);
   useAnimationFrame(() => {
     const now = getTime();
@@ -42,20 +60,33 @@ export function KaraokeLyrics({ timeline, getTime, mode, title, artist }: Props)
     );
   }
   return mode === 'scroll' ? (
-    <ScrollLyrics timeline={timeline} t={t} />
+    <ScrollLyrics timeline={timeline} t={t} decorate={decorate} />
   ) : (
-    <ClassicLyrics timeline={timeline} t={t} title={title} artist={artist} />
+    <ClassicLyrics timeline={timeline} t={t} title={title} artist={artist} decorate={decorate} />
   );
 }
 
 interface Slot {
   line: TimedLine;
+  pos: number;
   progress: number;
   state: 'active' | 'next';
 }
 
 /** แบบคาราโอเกะคลาสสิก 2 บรรทัดสลับกัน (บรรทัดบนชิดซ้าย บรรทัดล่างชิดขวา) */
-function ClassicLyrics({ timeline: tl, t, title, artist }: { timeline: TimedLine[]; t: number; title: string; artist: string }) {
+function ClassicLyrics({
+  timeline: tl,
+  t,
+  title,
+  artist,
+  decorate,
+}: {
+  timeline: TimedLine[];
+  t: number;
+  title: string;
+  artist: string;
+  decorate?: LineDecor;
+}) {
   const c = findActive(tl, t);
   const slots: (Slot | null)[] = [null, null];
   let countdown = 0;
@@ -66,7 +97,7 @@ function ClassicLyrics({ timeline: tl, t, title, artist }: { timeline: TimedLine
   const put = (i: number, state: Slot['state']) => {
     const line = tl[i];
     if (!line) return;
-    slots[i % 2] = { line, state, progress: state === 'active' ? progressAt(line, t) : 0 };
+    slots[i % 2] = { line, pos: i, state, progress: state === 'active' ? progressAt(line, t) : 0 };
   };
 
   if (c === -1) {
@@ -117,7 +148,8 @@ function ClassicLyrics({ timeline: tl, t, title, artist }: { timeline: TimedLine
         {countdown > 0 ? <Countdown remain={countdown} /> : interlude ? <div className="stage-note">♪ ดนตรี ♪</div> : null}
       </div>
       {slots.map((s, i) => (
-        <div key={i} className={`classic-line ${i === 0 ? 'left' : 'right'} ${s?.state ?? ''}`}>
+        <div key={i} className={`classic-line ${i === 0 ? 'left' : 'right'} ${s?.state ?? ''}`} style={s ? decorStyle(decorate, s.pos) : undefined}>
+          {s && <Tag decorate={decorate} i={s.pos} />}
           {s && <LyricLineView key={s.line.index} text={s.line.text} progress={s.progress} />}
         </div>
       ))}
@@ -126,7 +158,7 @@ function ClassicLyrics({ timeline: tl, t, title, artist }: { timeline: TimedLine
 }
 
 /** แบบเลื่อนขึ้นทีละบรรทัด */
-function ScrollLyrics({ timeline: tl, t }: { timeline: TimedLine[]; t: number }) {
+function ScrollLyrics({ timeline: tl, t, decorate }: { timeline: TimedLine[]; t: number; decorate?: LineDecor }) {
   const c = findActive(tl, t);
   const boxRef = useRef<HTMLDivElement>(null);
   const lineRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -157,7 +189,9 @@ function ScrollLyrics({ timeline: tl, t }: { timeline: TimedLine[]; t: number })
               lineRefs.current[i] = el;
             }}
             className={`scroll-line ${i === c ? 'active' : i < c ? 'past' : 'future'}`}
+            style={decorStyle(decorate, i)}
           >
+            <Tag decorate={decorate} i={i} />
             <LyricLineView text={line.text} progress={i === c ? progressAt(line, t) : i < c ? 1 : 0} />
           </div>
         ))}

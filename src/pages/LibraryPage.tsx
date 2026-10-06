@@ -5,10 +5,12 @@ import { syncedCount } from '../lib/lyrics';
 import { serializeLrc } from '../lib/lrc';
 import { downloadBlob, formatTime, safeFileName } from '../lib/format';
 import { keyName } from '../lib/music';
-import { queue } from '../lib/queue';
+import { queue, useQueue } from '../lib/queue';
+import { thumbnailUrl } from '../lib/youtube';
 import { newId } from '../lib/id';
 import { toast } from '../lib/toast';
 import { addDemoSong } from '../lib/songs';
+import { getBestScores, type BestScore } from '../lib/scoring';
 import type { Song } from '../lib/types';
 import { Icon } from '../components/Icon';
 
@@ -24,7 +26,7 @@ function SyncBadge({ song }: { song: Song }) {
   );
 }
 
-function SongCard({ song }: { song: Song }) {
+function SongCard({ song, best }: { song: Song; best: BestScore | undefined }) {
   const ready = song.lines.length > 0 && syncedCount(song.lines) === song.lines.length;
   const addToQueue = () => {
     queue.add({ key: newId(), kind: 'local', songId: song.id, title: song.title, artist: song.artist });
@@ -41,8 +43,8 @@ function SongCard({ song }: { song: Song }) {
   };
   return (
     <article className="song-card">
-      <a className="song-cover" href={ready ? paths.sing(song.id) : paths.sync(song.id)} aria-label={`ร้อง ${song.title}`}>
-        <Icon name="music" size={28} />
+      <a className={`song-cover ${song.youtube ? 'yt' : ''}`} href={ready ? paths.sing(song.id) : paths.sync(song.id)} aria-label={`ร้อง ${song.title}`}>
+        {song.youtube ? <img src={thumbnailUrl(song.youtube.videoId)} alt="" loading="lazy" /> : <Icon name="music" size={28} />}
         <span className="song-cover-play">
           <Icon name="play" size={22} />
         </span>
@@ -56,8 +58,10 @@ function SongCard({ song }: { song: Song }) {
         </p>
         <div className="badges">
           <SyncBadge song={song} />
+          {song.youtube && <span className="badge yt-badge">YouTube</span>}
           {song.stereo === false && <span className="badge">โมโน</span>}
           {song.demo && <span className="badge accent">ตัวอย่าง</span>}
+          {best && <span className="badge best-badge">🏆 {best.best} คะแนน</span>}
         </div>
       </div>
       <div className="song-actions">
@@ -86,6 +90,51 @@ function SongCard({ song }: { song: Song }) {
   );
 }
 
+/** เมนูหลักแบบการ์ด — แตะง่ายบนมือถือ */
+function HomeMenu() {
+  const { now, next } = useQueue();
+  const queued = next.length + (now ? 1 : 0);
+  const items: { href?: string; onClick?: () => void; icon: string; title: string; text: string; tone: string; badge?: number }[] = [
+    {
+      icon: 'mic',
+      title: 'ร้องเพลง',
+      text: 'เลือกเพลงจากคลังของฉัน',
+      tone: 'pink',
+      onClick: () => document.getElementById('my-songs')?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+    },
+    { href: paths.newSong(true), icon: 'youtube', title: 'เพิ่มจาก YouTube', text: 'วางลิงก์ + หาเนื้อให้เอง', tone: 'red' },
+    { href: paths.newSong(), icon: 'upload', title: 'เพิ่มจากไฟล์', text: 'MP3/M4A ตัดเสียงร้อง ปรับคีย์ได้', tone: 'violet' },
+    { href: paths.room(), icon: 'queue', title: 'ห้องคาราโอเกะ', text: 'ต่อคิวเพลง ร้องยาวๆ', tone: 'cyan', badge: queued },
+    { href: paths.battle(), icon: 'trophy', title: 'แข่งร้อง', text: '2–4 คน บนเครื่องเดียว', tone: 'gold' },
+    { href: paths.online(), icon: 'users', title: 'แข่งออนไลน์', text: 'ข้ามเครื่องกับเพื่อน', tone: 'green' },
+  ];
+  return (
+    <nav className="home-menu" aria-label="เมนูหลัก">
+      {items.map((it) => {
+        const inner = (
+          <>
+            <span className={`home-menu-icon tone-${it.tone}`}>
+              <Icon name={it.icon} size={26} />
+              {!!it.badge && <span className="tab-badge">{it.badge}</span>}
+            </span>
+            <strong>{it.title}</strong>
+            <small>{it.text}</small>
+          </>
+        );
+        return it.href ? (
+          <a key={it.title} className="home-menu-card" href={it.href}>
+            {inner}
+          </a>
+        ) : (
+          <button key={it.title} type="button" className="home-menu-card" onClick={it.onClick}>
+            {inner}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
 const STEPS = [
   { icon: 'upload', title: 'อัปโหลดเพลง', text: 'ไฟล์ MP3/M4A/WAV ของคุณ — ประมวลผลในเครื่อง ไม่ส่งขึ้นเซิร์ฟเวอร์' },
   { icon: 'file', title: 'ใส่เนื้อเพลง', text: 'วางเนื้อเอง หรือค้นจาก LRCLIB ซึ่งบางเพลงมีเวลาซิงก์มาให้แล้ว' },
@@ -97,6 +146,7 @@ export function LibraryPage() {
   const [songs, setSongs] = useState<Song[] | null>(null);
   const [query, setQuery] = useState('');
   const [creatingDemo, setCreatingDemo] = useState(false);
+  const bestScores = useMemo(getBestScores, [songs]);
 
   useEffect(() => {
     const load = () => void songsDb.all().then(setSongs);
@@ -132,17 +182,11 @@ export function LibraryPage() {
             YouTube พร้อมคิวเพลง
           </p>
         </div>
-        <div className="hero-actions">
-          <a className="btn btn-primary btn-lg" href={paths.newSong()}>
-            <Icon name="plus" /> เพิ่มเพลง
-          </a>
-          <a className="btn btn-ghost btn-lg" href={paths.room()}>
-            <Icon name="youtube" /> ห้องคาราโอเกะ
-          </a>
-        </div>
       </section>
 
-      <section className="section">
+      <HomeMenu />
+
+      <section className="section" id="my-songs">
         <div className="section-head">
           <h2>
             คลังเพลงของฉัน {songs && songs.length > 0 && <span className="count">{songs.length}</span>}
@@ -176,7 +220,7 @@ export function LibraryPage() {
         ) : (
           <div className="song-list">
             {filtered.map((s) => (
-              <SongCard key={s.id} song={s} />
+              <SongCard key={s.id} song={s} best={bestScores[s.id]} />
             ))}
           </div>
         )}

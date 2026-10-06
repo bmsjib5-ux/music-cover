@@ -10,7 +10,9 @@ import { queue } from '../lib/queue';
 import { newId } from '../lib/id';
 import { toast } from '../lib/toast';
 import type { Cover, Song } from '../lib/types';
+import { getBestScore, SCORE_EVENT } from '../lib/scoring';
 import { KaraokePlayer } from '../components/KaraokePlayer';
+import { YouTubeKaraoke } from '../components/YouTubeKaraoke';
 import { MicPanel } from '../components/MicPanel';
 import { Icon } from '../components/Icon';
 
@@ -64,6 +66,13 @@ export function SingPage({ id }: { id: string }) {
   const [missing, setMissing] = useState(false);
   const [covers, setCovers] = useState<Cover[]>([]);
   const [keyShift, setKeyShift] = useState(0);
+  const [best, setBest] = useState(() => getBestScore(id));
+
+  useEffect(() => {
+    const onScore = () => setBest(getBestScore(id));
+    window.addEventListener(SCORE_EVENT, onScore);
+    return () => window.removeEventListener(SCORE_EVENT, onScore);
+  }, [id]);
 
   useEffect(() => {
     const load = () =>
@@ -92,7 +101,14 @@ export function SingPage({ id }: { id: string }) {
       <div className="page-head">
         <div>
           <h1>{song.title}</h1>
-          <p className="muted">{song.artist || 'ไม่ระบุศิลปิน'}</p>
+          <p className="muted">
+            {song.artist || 'ไม่ระบุศิลปิน'}
+            {best && (
+              <span className="badge best-badge" style={{ marginLeft: 8 }}>
+                🏆 สถิติสูงสุด {best.best} คะแนน
+              </span>
+            )}
+          </p>
         </div>
         <div className="row">
           <a className="btn btn-ghost" href={paths.sync(song.id)}>
@@ -100,6 +116,9 @@ export function SingPage({ id }: { id: string }) {
           </a>
           <a className="btn btn-ghost" href={paths.edit(song.id)}>
             <Icon name="edit" size={18} /> แก้ไข
+          </a>
+          <a className="btn btn-ghost" href={paths.battle(song.id)}>
+            <Icon name="trophy" size={18} /> ชวนเพื่อนแข่ง
           </a>
           <button
             type="button"
@@ -121,33 +140,50 @@ export function SingPage({ id }: { id: string }) {
         </p>
       )}
 
-      <KaraokePlayer song={song} onKeyShift={setKeyShift} />
-      <MicPanel song={song} keyShift={keyShift} onSaved={loadCovers} />
+      {song.youtube ? (
+        <>
+          <YouTubeKaraoke
+            song={song}
+            autoPlay={false}
+            allowScoring
+            onOffsetChange={(offset) => void songsDb.put({ ...song, offset, updatedAt: Date.now() })}
+          />
+          {/* เพลง YouTube อัดคัฟเวอร์ไม่ได้ (เข้าถึงเสียงวิดีโอไม่ได้) — ใช้ไมค์ + Auto-Tune ได้ */}
+          <MicPanel songKey={song.key} keyShift={0} />
+        </>
+      ) : (
+        <>
+          <KaraokePlayer song={song} onKeyShift={setKeyShift} />
+          <MicPanel song={song} keyShift={keyShift} onSaved={loadCovers} />
+        </>
+      )}
 
-      <section className="card">
-        <header className="card-head">
-          <h2>
-            <Icon name="music" /> คัฟเวอร์ของฉัน {covers.length > 0 && <span className="count">{covers.length}</span>}
-          </h2>
-        </header>
-        {covers.length === 0 ? (
-          <p className="muted">ยังไม่มีคัฟเวอร์ — เปิดไมค์แล้วกด "อัดคัฟเวอร์" ด้านบน</p>
-        ) : (
-          <ul className="cover-list">
-            {covers.map((c) => (
-              <CoverItem
-                key={c.id}
-                cover={c}
-                onDelete={async () => {
-                  if (!confirm('ลบคัฟเวอร์นี้?')) return;
-                  await coversDb.delete(c.id);
-                  loadCovers();
-                }}
-              />
-            ))}
-          </ul>
-        )}
-      </section>
+      {!song.youtube && (
+        <section className="card">
+          <header className="card-head">
+            <h2>
+              <Icon name="music" /> คัฟเวอร์ของฉัน {covers.length > 0 && <span className="count">{covers.length}</span>}
+            </h2>
+          </header>
+          {covers.length === 0 ? (
+            <p className="muted">ยังไม่มีคัฟเวอร์ — เปิดไมค์แล้วกด "อัดคัฟเวอร์" ด้านบน</p>
+          ) : (
+            <ul className="cover-list">
+              {covers.map((c) => (
+                <CoverItem
+                  key={c.id}
+                  cover={c}
+                  onDelete={async () => {
+                    if (!confirm('ลบคัฟเวอร์นี้?')) return;
+                    await coversDb.delete(c.id);
+                    loadCovers();
+                  }}
+                />
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
     </div>
   );
 }

@@ -6,15 +6,23 @@ interface Props {
   rate: number;
   onEnded: () => void;
   onError: (message: string) => void;
+  /** false = โหลดวิดีโอค้างไว้ ยังไม่เล่น (ค่าเริ่มต้น true) */
+  autoplay?: boolean;
+  onReady?: (player: YTPlayer) => void;
+  onState?: (state: number) => void;
+  /** เปลี่ยนค่านี้เพื่อเริ่มวิดีโอใหม่ (เช่น คิวเพลงเดิมซ้ำสองครั้งติดกัน) */
+  playKey?: string;
 }
 
-export function YouTubePlayer({ videoId, rate, onEnded, onError }: Props) {
+export function YouTubePlayer({ videoId, rate, onEnded, onError, autoplay = true, onReady, onState, playKey }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YTPlayer | null>(null);
   const readyRef = useRef(false);
-  const cb = useRef({ onEnded, onError, rate });
-  cb.current = { onEnded, onError, rate };
+  const cb = useRef({ onEnded, onError, rate, onReady, onState });
+  cb.current = { onEnded, onError, rate, onReady, onState };
+  const autoplayRef = useRef(autoplay);
   const firstId = useRef(videoId);
+  const firstKey = useRef(playKey);
 
   useEffect(() => {
     let cancelled = false;
@@ -30,14 +38,16 @@ export function YouTubePlayer({ videoId, rate, onEnded, onError }: Props) {
           videoId: firstId.current,
           width: '100%',
           height: '100%',
-          playerVars: { autoplay: 1, playsinline: 1, rel: 0, modestbranding: 1, fs: 1, iv_load_policy: 3 },
+          playerVars: { autoplay: autoplayRef.current ? 1 : 0, playsinline: 1, rel: 0, modestbranding: 1, fs: 1, iv_load_policy: 3 },
           events: {
             onReady: (e) => {
               readyRef.current = true;
               e.target.setPlaybackRate(cb.current.rate);
-              e.target.playVideo();
+              if (autoplayRef.current) e.target.playVideo();
+              cb.current.onReady?.(e.target);
             },
             onStateChange: (e) => {
+              cb.current.onState?.(e.data);
               if (e.data === YT_STATE.ENDED) cb.current.onEnded();
             },
             onError: (e) => cb.current.onError(youtubeErrorMessage(e.data)),
@@ -54,12 +64,14 @@ export function YouTubePlayer({ videoId, rate, onEnded, onError }: Props) {
     };
   }, []);
 
+  // เปลี่ยนวิดีโอโดยใช้ผู้เล่นตัวเดิม (ไม่หลุดจากโหมดเต็มจอ)
   useEffect(() => {
-    if (readyRef.current && playerRef.current && videoId !== firstId.current) {
+    if (readyRef.current && playerRef.current && (videoId !== firstId.current || playKey !== firstKey.current)) {
       firstId.current = videoId;
+      firstKey.current = playKey;
       playerRef.current.loadVideoById(videoId);
     }
-  }, [videoId]);
+  }, [videoId, playKey]);
 
   useEffect(() => {
     if (readyRef.current) playerRef.current?.setPlaybackRate(rate);

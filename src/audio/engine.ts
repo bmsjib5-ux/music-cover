@@ -8,6 +8,11 @@ export type { PitchInfo };
 export interface MicSettings {
   gain: number;
   monitor: boolean;
+  /**
+   * full = ได้ยินเสียงร้อง + เอฟเฟกต์, fx = ได้ยินเฉพาะเสียงก้อง/เอคโค่
+   * (เสียงจริงได้ยินเองทันที — ไม่รู้สึกว่าเสียงช้ากว่าเพลงบนเครื่องที่หน่วงมาก เช่น มือถือ/หูฟังบลูทูธ)
+   */
+  monitorMode: 'full' | 'fx';
   reverb: number;
   echo: number;
   autotune: boolean;
@@ -22,9 +27,13 @@ export interface MicSettings {
   echoCancellation: boolean;
 }
 
+/** มือถือหน่วงไมค์→ลำโพงมากกว่าคอม จึงเริ่มที่โหมดเฉพาะเสียงก้อง */
+const TOUCH_DEVICE = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
+
 export const DEFAULT_MIC: MicSettings = {
   gain: 1,
   monitor: false,
+  monitorMode: TOUCH_DEVICE ? 'fx' : 'full',
   reverb: 0.25,
   echo: 0,
   autotune: false,
@@ -54,6 +63,8 @@ interface MicChain {
   reverbSend: GainNode;
   echoSend: GainNode;
   vocalBus: GainNode;
+  /** เสียงร้อง (ไม่รวมเอฟเฟกต์) ที่ส่งไปหูฟัง */
+  monitorDry: GainNode;
   monitor: GainNode;
   meter: AnalyserNode;
   nodes: AudioNode[];
@@ -127,7 +138,8 @@ function setAudioSession(type: 'playback' | 'play-and-record'): void {
  * เอนจินเสียงตัวเดียวของทั้งแอป (ใช้ <audio> ตัวเดียว — iOS จะอนุญาตให้เล่นต่อเนื่องในคิวได้)
  *
  * เพลง:  audio → [ต้นฉบับ | ตัดเสียงร้อง (L−R + เบสเดิม)] → [ปรับคีย์] → musicBus → volume → ลำโพง
- * ไมค์:   mic → gain → [Auto-Tune] → dry + reverb + echo → vocalBus → (monitor) ลำโพง
+ * ไมค์:   mic → gain → [Auto-Tune] → dry + reverb + echo → vocalBus (อัดเสียง)
+ *        ได้ยินเสียงตัวเอง: [dry ถ้าโหมด full] + reverb + echo → monitor → ลำโพง
  * อัดเสียง: musicBus (ชดเชยดีเลย์) + vocalBus → MediaRecorder
  */
 export class AudioEngine {
@@ -423,7 +435,10 @@ export class AudioEngine {
           echoCancellation: s.echoCancellation,
           noiseSuppression: false,
           autoGainControl: false,
-        },
+          channelCount: 1,
+          // ขอความหน่วงต่ำที่สุดที่อุปกรณ์ทำได้ (Chrome/Android)
+          latency: 0,
+        } as MediaTrackConstraints,
       });
       setAudioSession('play-and-record');
       const ctx = this.ctx;
@@ -437,6 +452,7 @@ export class AudioEngine {
       const reverbSend = ctx.createGain();
       const echoSend = ctx.createGain();
       const vocalBus = ctx.createGain();
+      const monitorDry = ctx.createGain();
       const monitor = ctx.createGain();
 
       source.connect(input);
@@ -467,7 +483,10 @@ export class AudioEngine {
       post.connect(echoSend);
       echoSend.connect(this.echoDelay);
       this.fxReturn.connect(vocalBus);
-      vocalBus.connect(monitor);
+      // หูฟัง: เสียงร้อง (เลือกได้) + เอฟเฟกต์
+      post.connect(monitorDry);
+      monitorDry.connect(monitor);
+      this.fxReturn.connect(monitor);
       monitor.connect(ctx.destination);
 
       this.mic = {
@@ -481,9 +500,10 @@ export class AudioEngine {
         reverbSend,
         echoSend,
         vocalBus,
+        monitorDry,
         monitor,
         meter,
-        nodes: [source, input, meter, tunerDry, tunerWet, post, reverbSend, echoSend, vocalBus, monitor, ...(tuner ? [tuner] : [])],
+        nodes: [source, input, meter, tunerDry, tunerWet, post, reverbSend, echoSend, vocalBus, monitorDry, monitor, ...(tuner ? [tuner] : [])],
       };
       this.applyMicSettings();
       this.setState({ micOn: true, micError: null });
@@ -506,10 +526,12 @@ export class AudioEngine {
     const mic = this.mic;
     if (!mic) return;
     mic.nodes.forEach((n) => n.disconnect());
-    try {
-      this.fxReturn.disconnect(mic.vocalBus);
-    } catch {
-      /* ignore */
+    for (const node of [mic.vocalBus, mic.monitor]) {
+      try {
+        this.fxReturn.disconnect(node);
+      } catch {
+        /* ignore */
+      }
     }
     mic.stream.getTracks().forEach((t) => t.stop());
     this.mic = null;
@@ -545,6 +567,7 @@ export class AudioEngine {
     const t = this.ctx.currentTime;
     mic.input.gain.setTargetAtTime(s.gain, t, 0.02);
     mic.monitor.gain.setTargetAtTime(s.monitor ? 1 : 0, t, 0.02);
+    mic.monitorDry.gain.setTargetAtTime(s.monitorMode === 'fx' ? 0 : 1, t, 0.02);
     mic.reverbSend.gain.setTargetAtTime(s.reverb * 0.9, t, 0.02);
     mic.echoSend.gain.setTargetAtTime(s.echo * 0.6, t, 0.02);
     const tune = s.autotune && !!mic.tuner;
@@ -565,6 +588,20 @@ export class AudioEngine {
     const inLatency = (track?.getSettings() as MediaTrackSettings & { latency?: number })?.latency ?? 0.02;
     const out = (this.ctx.outputLatency || 0) + (this.ctx.baseLatency || 0);
     return Math.round((out + inLatency) * 1000);
+  }
+
+  /**
+   * ความหน่วงของเสียงที่ได้ยินผ่าน "ได้ยินเสียงตัวเอง" (ไมค์ → ลำโพง/หูฟัง) เป็นมิลลิวินาที
+   * null = เบราว์เซอร์ไม่บอกค่าความหน่วง (เช่น Safari บางรุ่น)
+   */
+  monitorLatencyMs(): number | null {
+    const track = this.mic?.stream.getAudioTracks()[0];
+    const inLatency = (track?.getSettings() as MediaTrackSettings & { latency?: number })?.latency;
+    const out = this.ctx.outputLatency;
+    if (typeof inLatency !== 'number' && !(typeof out === 'number' && out > 0)) return null;
+    const tune = this.micSettings.autotune && this.mic?.tuner ? 0.01 : 0;
+    const quantum = 128 / this.ctx.sampleRate;
+    return Math.round(((inLatency ?? 0.02) + (out || 0) + (this.ctx.baseLatency || 0) + tune + quantum) * 1000);
   }
 
   async startRecording(latencyMs: number, musicLevel = 0.8): Promise<boolean> {

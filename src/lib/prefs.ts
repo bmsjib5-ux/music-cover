@@ -10,12 +10,14 @@ export interface GlobalPrefs {
   lyricMode: 'classic' | 'scroll';
   ytApiKey: string;
   ytKaraokeOnly: boolean;
+  /** นับคะแนนการร้อง */
+  scoring: boolean;
 }
 
 const SONG_KEY = 'rongloei.songPrefs.v1';
 const GLOBAL_KEY = 'rongloei.prefs.v1';
 
-const DEFAULT_GLOBAL: GlobalPrefs = { voice: 0, volume: 1, lyricMode: 'classic', ytApiKey: '', ytKaraokeOnly: true };
+const DEFAULT_GLOBAL: GlobalPrefs = { voice: 0, volume: 1, lyricMode: 'classic', ytApiKey: '', ytKaraokeOnly: true, scoring: false };
 
 function read<T>(key: string, fallback: T): T {
   try {

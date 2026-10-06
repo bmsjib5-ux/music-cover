@@ -1,6 +1,7 @@
 import { encodeWav } from './wav';
 import { analyzeChannels } from './analyze';
 import { newId } from './id';
+import { MELODY_FPS, type Melody } from './melody';
 import type { LyricLine, Song } from './types';
 
 /**
@@ -64,6 +65,20 @@ export function demoLines(): LyricLine[] {
       end: Math.round((base + (last[0] + last[1]) * E8) * 100) / 100,
     };
   });
+}
+
+/** เส้นทำนองจริงของเพลงตัวอย่าง (รู้โน้ตทุกตัวอยู่แล้ว ไม่ต้องถอด) */
+export function demoMelody(): Melody {
+  const cents = new Array<number>(Math.ceil((TOTAL_BARS * BAR + 2) * MELODY_FPS)).fill(0);
+  LYRICS.forEach((_, k) => {
+    const base = (INTRO_BARS + k * 2) * BAR;
+    for (const [s, l, m] of MELODIES[k % MELODIES.length]) {
+      const a = Math.round((base + s * E8) * MELODY_FPS);
+      const b = Math.round((base + (s + l * 0.95) * E8) * MELODY_FPS);
+      for (let i = a; i < b && i < cents.length; i++) cents[i] = m * 100;
+    }
+  });
+  return { fps: MELODY_FPS, cents };
 }
 
 export async function renderDemoAudio(): Promise<AudioBuffer> {
@@ -255,6 +270,7 @@ export async function createDemoSong(): Promise<Song> {
     stereo: info.stereo,
     peaks: info.peaks,
     key: { root: 0, mode: 'major' },
+    melody: demoMelody(),
     lines: demoLines(),
     offset: 0,
     demo: true,

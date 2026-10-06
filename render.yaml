@@ -1,0 +1,28 @@
+# Render Blueprint — เว็บ static (ไม่ต้องมีเซิร์ฟเวอร์)
+# วิธีใช้: Render Dashboard → New → Blueprint → เลือก repo นี้
+services:
+  - type: web
+    name: rong-loei-karaoke
+    runtime: static
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # YouTube Data API key ที่ให้ทุกคนค้นหาได้ทันที — กรอกค่าบน Render (ไม่เก็บใน repo)
+      # อย่าลืมจำกัดโดเมนของ key ใน Google Cloud Console
+      - key: VITE_YT_API_KEY
+        sync: false
+      # Supabase สำหรับแข่งร้องข้ามเครื่อง (ดู supabase/setup.sql และ README)
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false
+    headers:
+      # ไฟล์ใน assets/ มี hash ในชื่อ เก็บแคชได้นาน
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff

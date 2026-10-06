@@ -19,3 +19,15 @@ createRoot(document.getElementById('root')!).render(
     <App />
   </StrictMode>,
 );
+
+// ซ่อนหน้าจอเปิดแอปเมื่อหน้าแรกพร้อม (แสดงอย่างน้อยครู่หนึ่งให้เห็นไอคอน ไม่กะพริบ)
+const SPLASH_MIN_MS = 800;
+const splash = document.getElementById('splash');
+if (splash) {
+  const hide = () => {
+    splash.classList.add('hide');
+    splash.addEventListener('transitionend', () => splash.remove(), { once: true });
+    setTimeout(() => splash.remove(), 600);
+  };
+  requestAnimationFrame(() => setTimeout(hide, Math.max(0, SPLASH_MIN_MS - performance.now())));
+}

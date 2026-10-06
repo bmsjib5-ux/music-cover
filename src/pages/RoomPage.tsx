@@ -1,25 +1,20 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { onSongsChanged, songsDb } from '../lib/db';
 import { queue, useQueue } from '../lib/queue';
-import { getPrefs, setPrefs } from '../lib/prefs';
 import { newId } from '../lib/id';
 import { toast } from '../lib/toast';
 import { paths } from '../lib/router';
 import { syncedCount } from '../lib/lyrics';
-import {
-  fetchVideoInfo,
-  parseYouTubeId,
-  searchYouTube,
-  thumbnailUrl,
-  youtubeSearchUrl,
-  type YouTubeVideo,
-} from '../lib/youtube';
+import { thumbnailUrl } from '../lib/youtube';
+import { YouTubeSearch } from '../components/YouTubeSearch';
 import type { QueueItem, Song } from '../lib/types';
 import { KaraokePlayer } from '../components/KaraokePlayer';
+import { YouTubeKaraoke } from '../components/YouTubeKaraoke';
 import { YouTubePlayer } from '../components/YouTubePlayer';
 import { MicPanel } from '../components/MicPanel';
 import { getEngine } from '../audio/engine';
 import { Icon } from '../components/Icon';
+import { useFullscreen } from '../hooks/useFullscreen';
 
 const YT_RATES = [0.75, 1, 1.25];
 
@@ -114,107 +109,68 @@ function LibraryPicker() {
 }
 
 function YouTubePicker() {
-  const [prefs, setPrefsState] = useState(getPrefs);
-  const [input, setInput] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [results, setResults] = useState<YouTubeVideo[] | null>(null);
-  const [apiKeyDraft, setApiKeyDraft] = useState(prefs.ytApiKey);
-
-  const addVideo = (v: YouTubeVideo) => {
-    queue.add({ key: newId(), kind: 'youtube', videoId: v.videoId, title: v.title, channel: v.channel });
-    toast(`เพิ่ม "${v.title}" เข้าคิวแล้ว`, 'success');
-  };
-
-  const submit = async () => {
-    const text = input.trim();
-    if (!text) return;
-    const id = parseYouTubeId(text);
-    setBusy(true);
-    try {
-      if (id) {
-        const info = await fetchVideoInfo(id);
-        if (!info) toast('วิดีโอนี้อาจเป็นส่วนตัวหรือไม่อนุญาตให้ฝัง แต่จะลองเล่นให้', 'error');
-        addVideo(info ?? { videoId: id, title: `YouTube ${id}`, channel: '', thumbnail: thumbnailUrl(id) });
-        setInput('');
-      } else if (prefs.ytApiKey) {
-        setResults(await searchYouTube(text, prefs.ytApiKey, prefs.ytKaraokeOnly));
-      } else {
-        window.open(youtubeSearchUrl(text, prefs.ytKaraokeOnly), '_blank', 'noopener');
-        toast('เปิดผลค้นหาบน YouTube แล้ว — คัดลอกลิงก์วิดีโอมาวางที่นี่', 'info', 5000);
-      }
-    } catch (err) {
-      toast((err as Error).message || 'ค้นหาไม่สำเร็จ', 'error');
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
-    <div className="yt-picker">
-      <form
-        className="yt-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void submit();
-        }}
-      >
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder={prefs.ytApiKey ? 'พิมพ์ชื่อเพลง หรือวางลิงก์ YouTube' : 'วางลิงก์ YouTube (หรือพิมพ์ชื่อเพลงเพื่อค้นใน YouTube)'}
-          aria-label="ลิงก์หรือชื่อเพลง"
-        />
-        <button type="submit" className="btn btn-primary" disabled={busy || !input.trim()}>
-          {parseYouTubeId(input) ? <Icon name="plus" size={18} /> : <Icon name="search" size={18} />}
-        </button>
-      </form>
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={prefs.ytKaraokeOnly}
-          onChange={(e) => setPrefsState(setPrefs({ ytKaraokeOnly: e.target.checked }))}
-        />
-        ค้นหาเฉพาะเวอร์ชันคาราโอเกะ
-      </label>
+    <YouTubeSearch
+      actionLabel="คิว"
+      onPick={(v) => {
+        queue.add({ key: newId(), kind: 'youtube', videoId: v.videoId, title: v.title, channel: v.channel });
+        toast(`เพิ่ม "${v.title}" เข้าคิวแล้ว`, 'success');
+      }}
+    />
+  );
+}
 
-      {results && (
-        <ul className="yt-results">
-          {results.length === 0 && <li className="muted">ไม่พบวิดีโอ</li>}
-          {results.map((v) => (
-            <li key={v.videoId}>
-              <img src={v.thumbnail} alt="" loading="lazy" />
-              <div>
-                <strong>{v.title}</strong>
-                <small className="muted">{v.channel}</small>
-              </div>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => addVideo(v)}>
-                <Icon name="plus" size={16} /> คิว
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <details className="help">
-        <summary>ค้นหาใน YouTube ได้ทันที (ใส่ API key)</summary>
-        <p className="muted small">
-          ถ้าไม่มี key ระบบจะเปิดหน้าค้นหาของ YouTube ให้แทน หากต้องการค้นในหน้านี้เลย ให้สร้าง API key ฟรีที่ Google Cloud Console (เปิดใช้ YouTube Data API v3) แล้วนำมาวาง —
-          key จะเก็บไว้ในเบราว์เซอร์นี้เท่านั้น
-        </p>
-        <div className="yt-form">
-          <input value={apiKeyDraft} onChange={(e) => setApiKeyDraft(e.target.value)} placeholder="YouTube Data API key" aria-label="API key" />
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={() => {
-              setPrefsState(setPrefs({ ytApiKey: apiKeyDraft.trim() }));
-              toast(apiKeyDraft.trim() ? 'บันทึก API key แล้ว' : 'ลบ API key แล้ว', 'success');
+/** วิดีโอ YouTube ในห้องคาราโอเกะ (มีปุ่มเต็มจอที่ยังเห็นปุ่มข้ามเพลง/ความเร็ว) */
+function YouTubeNowPlaying({
+  item,
+  rate,
+  setRate,
+  skip,
+}: {
+  item: Extract<QueueItem, { kind: 'youtube' }>;
+  rate: number;
+  setRate: (r: number) => void;
+  skip: ReactNode;
+}) {
+  const full = useFullscreen();
+  return (
+    <div className="player">
+      <div ref={full.ref} className={`player-shell yt-room-shell ${full.className}`}>
+        <div className="yt-stage">
+          <YouTubePlayer
+            videoId={item.videoId}
+            playKey={item.key}
+            rate={rate}
+            onEnded={() => queue.advance()}
+            onError={(msg) => {
+              toast(`${msg} — ข้ามไปเพลงถัดไป`, 'error', 4000);
+              setTimeout(() => {
+                if (queue.get().now?.key === item.key) queue.advance();
+              }, 2500);
             }}
-          >
-            บันทึก
+          />
+        </div>
+        <div className="transport">
+          <div className="np-title">
+            <strong>{item.title}</strong>
+            <small className="muted">{item.channel}</small>
+          </div>
+          <div className="seg" title="ความเร็ว (คีย์ไม่เปลี่ยน)">
+            {YT_RATES.map((r) => (
+              <button key={r} type="button" className={rate === r ? 'on' : ''} onClick={() => setRate(r)}>
+                {r}x
+              </button>
+            ))}
+          </div>
+          {skip}
+          <button type="button" className="icon-btn" onClick={full.toggle} aria-label={full.active ? 'ออกจากเต็มจอ' : 'เต็มจอ'} title="เต็มจอ (F)">
+            <Icon name={full.active ? 'minimize' : 'maximize'} />
           </button>
         </div>
-      </details>
+      </div>
+      <p className="muted small yt-note">
+        วิดีโอ YouTube ปรับคีย์/ตัดเสียงร้องไม่ได้ (ข้อจำกัดของ YouTube) แต่ใช้ไมค์ + Auto-Tune ร้องทับได้ — อยากปรับคีย์ ให้เพิ่มเพลงเป็นไฟล์ในคลัง
+      </p>
     </div>
   );
 }
@@ -249,38 +205,9 @@ function NowPlaying({ item }: { item: QueueItem }) {
   return (
     <>
       {item.kind === 'youtube' ? (
-        <div className="player">
-          <div className="yt-stage">
-            <YouTubePlayer
-              videoId={item.videoId}
-              rate={ytRate}
-              onEnded={() => queue.advance()}
-              onError={(msg) => {
-                toast(`${msg} — ข้ามไปเพลงถัดไป`, 'error', 4000);
-                setTimeout(() => {
-                  if (queue.get().now?.key === item.key) queue.advance();
-                }, 2500);
-              }}
-            />
-          </div>
-          <div className="transport">
-            <div className="np-title">
-              <strong>{item.title}</strong>
-              <small className="muted">{item.channel}</small>
-            </div>
-            <div className="seg" title="ความเร็ว (คีย์ไม่เปลี่ยน)">
-              {YT_RATES.map((r) => (
-                <button key={r} type="button" className={ytRate === r ? 'on' : ''} onClick={() => setYtRate(r)}>
-                  {r}x
-                </button>
-              ))}
-            </div>
-            {skip}
-          </div>
-          <p className="muted small yt-note">
-            วิดีโอ YouTube ปรับคีย์/ตัดเสียงร้องไม่ได้ (ข้อจำกัดของ YouTube) แต่ใช้ไมค์ + Auto-Tune ร้องทับได้ — อยากปรับคีย์ ให้เพิ่มเพลงเป็นไฟล์ในคลัง
-          </p>
-        </div>
+        <YouTubeNowPlaying item={item} rate={ytRate} setRate={setYtRate} skip={skip} />
+      ) : song?.youtube ? (
+        <YouTubeKaraoke song={song} autoPlay allowScoring onEnded={() => queue.advance()} extraActions={skip} />
       ) : song ? (
         <KaraokePlayer song={song} autoPlay onEnded={() => queue.advance()} onKeyShift={setKeyShift} extraActions={skip} />
       ) : (
@@ -316,7 +243,7 @@ export function RoomPage() {
       <div className="room-layout">
         <div className="room-main">
           {now ? (
-            <NowPlaying key={now.key} item={now} />
+            <NowPlaying key={now.kind === 'youtube' ? 'youtube' : now.key} item={now} />
           ) : (
             <div className="card room-idle">
               <Icon name="mic" size={44} />
@@ -330,7 +257,18 @@ export function RoomPage() {
               ) : (
                 <>
                   <h2>ยังไม่มีเพลงในคิว</h2>
-                  <p className="muted">เพิ่มเพลงจากแผงด้านข้าง — วางลิงก์ YouTube หรือเลือกจากคลังเพลงของคุณ</p>
+                  <p className="muted">เพิ่มเพลงจากแผงเลือกเพลง — วางลิงก์ YouTube หรือเลือกจากคลังเพลงของคุณ</p>
+                  <button
+                    type="button"
+                    className="btn btn-primary mobile-only"
+                    onClick={() => {
+                      const box = document.getElementById('pick-song');
+                      box?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      box?.querySelector('input')?.focus({ preventScroll: true });
+                    }}
+                  >
+                    <Icon name="search" size={18} /> เลือกเพลง
+                  </button>
                 </>
               )}
             </div>
@@ -380,7 +318,7 @@ export function RoomPage() {
             <p className="muted small">💡 เปิดหน้านี้อีกแท็บ/อีกหน้าต่างเพื่อเลือกเพลง คิวจะซิงก์กันอัตโนมัติ</p>
           </section>
 
-          <section className="card">
+          <section className="card" id="pick-song">
             <div className="tabs">
               <button type="button" className={tab === 'youtube' ? 'on' : ''} onClick={() => setTab('youtube')}>
                 <Icon name="youtube" size={18} /> YouTube
